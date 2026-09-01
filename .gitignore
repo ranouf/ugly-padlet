@@ -1,0 +1,11 @@
+.codex/
+node_modules/
+test-results/
+previews/
+documents/
+elanquoi/
+tests/
+ugly-padlet-test.html
+package.json
+pnpm-lock.yaml
+playwright.config.js
