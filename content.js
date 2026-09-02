@@ -8,7 +8,7 @@
   const CACHE_KEY = "uglyPadlet:ecoleElan:posts:v3";
   const FILTER_CACHE_KEY = "uglyPadlet:ecoleElan:filters:v1";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("1.0.82");
+  const APP_VERSION = getExtensionVersion("2.0.0");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -1176,7 +1176,7 @@
     if (isPadletUiChrome(text)) return false;
     if (looksLikeBoardContainer(text) || hasMultiplePostDescendants(node)) return false;
     if (text.length < 24 || text.length > 7000) return false;
-    if (rect.width < 160 || rect.height < 45 || rect.height > window.innerHeight * 1.8) return false;
+    if (rect.width < 120 || rect.height < 45) return false;
 
     const descriptor = `${node.tagName} ${node.className || ""} ${node.getAttribute("data-testid") || ""} ${node.getAttribute("aria-label") || ""}`;
     const score = [
