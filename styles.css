@@ -1285,7 +1285,20 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   }
 
   .epr-modal {
-    padding: 8px;
+    padding: 0;
+  }
+
+  .epr-modal-panel {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-width: 0;
+    border-radius: 0;
+  }
+
+  .epr-modal-panel-pdf {
+    height: 100dvh;
+    max-height: none;
   }
 
   .epr-modal-close {
@@ -1294,8 +1307,8 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   }
 
   .epr-modal-close-floating {
-    top: 12px;
-    right: 12px;
+    top: 14px;
+    right: 14px;
   }
 
   .epr-modal-header h2 {
