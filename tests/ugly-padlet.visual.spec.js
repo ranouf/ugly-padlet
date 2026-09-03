@@ -437,21 +437,19 @@ test("visuel - modal texte avec lien brut clickable et lecteur YouTube", async (
   await expect(
     page.locator(".epr-modal .epr-youtube-viewer iframe"),
   ).toHaveAttribute("src", /youtube-nocookie\.com\/embed\/BiUd53UqMis/);
-  const videoTextLayout = await page
-    .locator(".epr-modal")
-    .evaluate((modal) => {
-      const body = modal.querySelector(".epr-modal-body");
-      const video = modal.querySelector(".epr-youtube-viewer");
-      const text = modal.querySelector(".epr-post-text");
-      const style = getComputedStyle(body);
-      const gap = [style.gap, style.rowGap, style.columnGap]
-        .map(Number.parseFloat)
-        .find(Number.isFinite);
-      return {
-        gap,
-        textFollowsVideo: video.nextElementSibling === text,
-      };
-    });
+  const videoTextLayout = await page.locator(".epr-modal").evaluate((modal) => {
+    const body = modal.querySelector(".epr-modal-body");
+    const video = modal.querySelector(".epr-youtube-viewer");
+    const text = modal.querySelector(".epr-post-text");
+    const style = getComputedStyle(body);
+    const gap = [style.gap, style.rowGap, style.columnGap]
+      .map(Number.parseFloat)
+      .find(Number.isFinite);
+    return {
+      gap,
+      textFollowsVideo: video.nextElementSibling === text,
+    };
+  });
   expect(videoTextLayout.gap).toBeGreaterThanOrEqual(14);
   expect(videoTextLayout.textFollowsVideo).toBe(true);
   await expect(page).toHaveScreenshot("modal-youtube-autolink.png", {

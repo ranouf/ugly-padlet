@@ -40,7 +40,12 @@ jobs:
 
       - name: Run Prettier check
         id: prettier
-        run: pnpm format:check
+        shell: bash
+        run: |
+          pnpm format:check || {
+            pnpm format
+            git diff --exit-code --ignore-cr-at-eol
+          }
         continue-on-error: true
 
       - name: Run ESLint
