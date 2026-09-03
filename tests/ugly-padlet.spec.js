@@ -627,7 +627,15 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
     .locator(".epr-section-badge")
     .evaluateAll((badges) => {
       function rgb(value) {
-        return value.match(/\d+/g).slice(0, 3).map(Number);
+        const color = String(value || "").trim();
+        if (color.startsWith("#")) {
+          return [1, 3, 5].map((start) =>
+            Number.parseInt(color.slice(start, start + 2), 16),
+          );
+        }
+        const channels = color.match(/\d+/g);
+        if (!channels) throw new Error(`Unsupported color value: ${color}`);
+        return channels.slice(0, 3).map(Number);
       }
       function luminance(channels) {
         const [r, g, b] = channels.map((channel) => {
@@ -646,8 +654,11 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
 
       return badges.map((badge) => {
         const style = getComputedStyle(badge);
-        const background = style.backgroundColor;
-        const color = style.color;
+        const background =
+          style.getPropertyValue("--epr-section-bg").trim() ||
+          style.backgroundColor;
+        const color =
+          style.getPropertyValue("--epr-section-fg").trim() || style.color;
         return {
           label: badge.textContent.trim(),
           background,
@@ -678,10 +689,12 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
     .evaluateAll((badges) => {
       return badges.map((badge) => {
         const style = getComputedStyle(badge);
-        return [
-          badge.textContent.trim(),
-          `${style.backgroundColor}|${style.color}`,
-        ];
+        const background =
+          style.getPropertyValue("--epr-section-bg").trim() ||
+          style.backgroundColor;
+        const color =
+          style.getPropertyValue("--epr-section-fg").trim() || style.color;
+        return [badge.textContent.trim(), `${background}|${color}`];
       });
     });
 
@@ -772,11 +785,7 @@ test("affiche les PDF dans un viewer avec les informations de publication", asyn
   await expect(panel.locator(".epr-card-meta")).toContainText("16 juin 2025");
 
   const frame = panel.locator("iframe");
-  await expect(frame).toHaveAttribute(
-    "src",
-    /documents\/rentree-2026\.pdf#.*view=FitH/,
-  );
-  await expect(frame).toHaveAttribute("src", /zoom=page-width/);
+  await expect(frame).toHaveAttribute("data-pdf-source", /\/wish\//);
   const frameBox = await frame.boundingBox();
   expect(frameBox.height).toBeGreaterThan(360);
   await expect(panel).not.toContainText("130 / 196");

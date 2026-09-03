@@ -102,6 +102,7 @@ jobs:
       - name: Collect validation status
         id: validation_status
         if: always()
+        shell: bash
         run: |
           status () {
             if [ "$1" = "success" ]; then echo "pass"; else echo "fail"; fi
@@ -172,6 +173,7 @@ jobs:
 
       - name: Enforce validation gate
         if: always()
+        shell: bash
         run: |
           if [ "${{ steps.validation_status.outputs.should_fail }}" = "true" ]; then
             echo "UglyPadlet validation failed."
