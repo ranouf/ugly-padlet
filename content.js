@@ -2,30 +2,72 @@
   const APP_ID = "elan-padlet-reader";
   const TARGET_URLS = [
     "padlet.com/elanquoideneuf/ecole-elan-2025-2026-gsult4hljk84tu3a",
-    "padlet.com/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a"
+    "padlet.com/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a",
   ];
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_KEY = "uglyPadlet:ecoleElan:posts:v3";
   const FILTER_CACHE_KEY = "uglyPadlet:ecoleElan:filters:v1";
+  const CONNECTION_DATE_KEY = "uglyPadlet:ecoleElan:lastConnectionDate:v1";
+  const CURRENT_CONNECTION_DATE_KEY =
+    "uglyPadlet:ecoleElan:currentConnectionDate:v1";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("1.0.82");
+  const APP_VERSION = getExtensionVersion("2.0.18");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
-    ["past", "Deja passees"]
+    ["past", "Deja passees"],
+    ["new", "Nouvelles"],
   ];
   const TODAY = startOfDay(new Date());
   const MONTHS = new Map([
-    ["janvier", 0], ["janv", 0], ["fevrier", 1], ["fevr", 1], ["février", 1], ["févr", 1],
-    ["mars", 2], ["avril", 3], ["avr", 3], ["mai", 4], ["juin", 5], ["juillet", 6],
-    ["juil", 6], ["aout", 7], ["août", 7], ["septembre", 8], ["sept", 8],
-    ["octobre", 9], ["oct", 9], ["novembre", 10], ["nov", 10], ["decembre", 11],
-    ["dec", 11], ["décembre", 11], ["déc", 11]
+    ["janvier", 0],
+    ["janv", 0],
+    ["fevrier", 1],
+    ["fevr", 1],
+    ["février", 1],
+    ["févr", 1],
+    ["mars", 2],
+    ["avril", 3],
+    ["avr", 3],
+    ["mai", 4],
+    ["juin", 5],
+    ["juillet", 6],
+    ["juil", 6],
+    ["aout", 7],
+    ["août", 7],
+    ["septembre", 8],
+    ["sept", 8],
+    ["octobre", 9],
+    ["oct", 9],
+    ["novembre", 10],
+    ["nov", 10],
+    ["decembre", 11],
+    ["dec", 11],
+    ["décembre", 11],
+    ["déc", 11],
   ]);
   const SECTION_KEYWORDS = [
-    "TPS", "PS", "MS", "GS", "CP", "CE1", "CE2", "CM1", "CM2",
-    "Maternelle", "Elementaire", "Élémentaire", "Primaire", "Ecole", "École",
-    "Cantine", "Garderie", "Periscolaire", "Périscolaire", "Sortie", "Parents"
+    "TPS",
+    "PS",
+    "MS",
+    "GS",
+    "CP",
+    "CE1",
+    "CE2",
+    "CM1",
+    "CM2",
+    "Maternelle",
+    "Elementaire",
+    "Élémentaire",
+    "Primaire",
+    "Ecole",
+    "École",
+    "Cantine",
+    "Garderie",
+    "Periscolaire",
+    "Périscolaire",
+    "Sortie",
+    "Parents",
   ];
   const BOARD_SECTION_TITLES = [
     "Mot de la direction",
@@ -50,13 +92,23 @@
     "Personnel de l'école",
     "Avis public CA du CSSDM",
     "Rentree 2026",
-    "Rentrée 2026"
+    "Rentrée 2026",
   ];
 
-  if ((!TARGET_URLS.some((targetUrl) => location.href.includes(targetUrl)) && !location.href.includes(TEST_PAGE)) || document.getElementById(APP_ID)) return;
-  const activeTargetUrl = TARGET_URLS.find((targetUrl) => location.href.includes(targetUrl)) || TARGET_URLS[0];
-  const BOARD_PATH = location.href.includes(TEST_PAGE) ? location.pathname : new URL(`https://${activeTargetUrl}`).pathname;
+  if (
+    (!TARGET_URLS.some((targetUrl) => location.href.includes(targetUrl)) &&
+      !location.href.includes(TEST_PAGE)) ||
+    document.getElementById(APP_ID)
+  )
+    return;
+  const activeTargetUrl =
+    TARGET_URLS.find((targetUrl) => location.href.includes(targetUrl)) ||
+    TARGET_URLS[0];
+  const BOARD_PATH = location.href.includes(TEST_PAGE)
+    ? location.pathname
+    : new URL(`https://${activeTargetUrl}`).pathname;
   const USE_PADLET_WISH_URLS = !location.href.includes(TEST_PAGE);
+  const previousConnectionDate = initializeConnectionDate();
   const padletTitle = getPadletTitle();
 
   const state = {
@@ -78,7 +130,7 @@
       percent: 0,
       round: 0,
       maxRounds: 0,
-      stableRounds: 0
+      stableRounds: 0,
     },
     cacheLoaded: false,
     loadedFromApi: false,
@@ -87,7 +139,9 @@
     visiblePosts: [],
     modalIndex: -1,
     modalImageIndex: 0,
-    pendingModalRequest: readModalRequestFromUrl()
+    modalSwipeManager: null,
+    pendingModalRequest: readModalRequestFromUrl(),
+    previousConnectionDate,
   };
   const pdfResolverCache = new Map();
 
@@ -105,58 +159,66 @@
         <div class="epr-actions">
           <button type="button" data-action="rescan">Actualiser</button>
           <button type="button" data-action="toggle-original" aria-pressed="false">Voir Padlet</button>
+          <button type="button" class="epr-filter-toggle" data-action="toggle-filter-panel" aria-expanded="false" aria-controls="epr-filter-fields">
+            ${renderIcon("filter")}
+            <span class="epr-filter-count" hidden>0</span>
+          </button>
         </div>
       </header>
 
       <section class="epr-filters" aria-label="Filtres">
-        <label>
-          <span>Recherche</span>
-          <input type="search" data-filter="query" placeholder="Mot, sortie, classe..." autocomplete="off" />
-        </label>
-        <label>
-          <span>Communication</span>
-          <div class="epr-single-select" data-status-filter>
-            <button type="button" class="epr-single-select-toggle" data-action="toggle-status-menu" aria-haspopup="true" aria-expanded="false">
-              <span class="epr-status-filter-label">Toutes</span>
-              ${renderIcon("chevron-down")}
-            </button>
-            <div class="epr-single-select-menu" hidden>
-              ${STATUS_OPTIONS.map(([value, label]) => `
-                <button type="button" class="epr-single-select-option" data-action="set-status" data-status-value="${escapeHtml(value)}" role="menuitemradio" aria-checked="false">
-                  <span>${escapeHtml(label)}</span>
-                </button>
-              `).join("")}
-            </div>
-          </div>
-        </label>
-        <label>
-          <span>Section</span>
-          <div class="epr-multi-select" data-section-filter>
-            <button type="button" class="epr-multi-select-toggle" data-action="toggle-section-menu" aria-haspopup="true" aria-expanded="false">
-              <span class="epr-section-filter-label">Toutes les sections</span>
-              ${renderIcon("chevron-down")}
-            </button>
-            <div class="epr-multi-select-menu" hidden>
-              <button type="button" class="epr-multi-select-option" data-action="clear-sections">
-                <span class="epr-checkbox-mark" aria-hidden="true"></span>
-                <span>Toutes les sections</span>
+        <div class="epr-filter-fields" id="epr-filter-fields">
+          <label>
+            <span>Recherche</span>
+            <input type="search" data-filter="query" placeholder="Mot, sortie, classe..." autocomplete="off" />
+          </label>
+          <label>
+            <span>Communication</span>
+            <div class="epr-single-select" data-status-filter>
+              <button type="button" class="epr-single-select-toggle" data-action="toggle-status-menu" aria-haspopup="true" aria-expanded="false">
+                <span class="epr-status-filter-label">Toutes</span>
+                ${renderIcon("chevron-down")}
               </button>
+              <div class="epr-single-select-menu" hidden>
+                ${STATUS_OPTIONS.map(
+                  ([value, label]) => `
+                  <button type="button" class="epr-single-select-option" data-action="set-status" data-status-value="${escapeHtml(value)}" role="menuitemradio" aria-checked="false">
+                    <span>${escapeHtml(label)}</span>
+                  </button>
+                `,
+                ).join("")}
+              </div>
             </div>
+          </label>
+          <label>
+            <span>Section</span>
+            <div class="epr-multi-select" data-section-filter>
+              <button type="button" class="epr-multi-select-toggle" data-action="toggle-section-menu" aria-haspopup="true" aria-expanded="false">
+                <span class="epr-section-filter-label">Toutes les sections</span>
+                ${renderIcon("chevron-down")}
+              </button>
+              <div class="epr-multi-select-menu" hidden>
+                <button type="button" class="epr-multi-select-option" data-action="clear-sections">
+                  <span class="epr-checkbox-mark" aria-hidden="true"></span>
+                  <span>Toutes les sections</span>
+                </button>
+              </div>
+            </div>
+          </label>
+          <label>
+            <span>Du</span>
+            <input type="date" data-filter="from" autocomplete="off" />
+          </label>
+          <label>
+            <span>Au</span>
+            <input type="date" data-filter="to" autocomplete="off" />
+          </label>
+          <div class="epr-filter-reset">
+            <span aria-hidden="true"></span>
+            <button type="button" data-action="reset-filters" aria-label="Reinitialiser les filtres" title="Reinitialiser les filtres">
+              ${renderIcon("arrow-counterclockwise")}
+            </button>
           </div>
-        </label>
-        <label>
-          <span>Du</span>
-          <input type="date" data-filter="from" autocomplete="off" />
-        </label>
-        <label>
-          <span>Au</span>
-          <input type="date" data-filter="to" autocomplete="off" />
-        </label>
-        <div class="epr-filter-reset">
-          <span aria-hidden="true"></span>
-          <button type="button" data-action="reset-filters" aria-label="Reinitialiser les filtres" title="Reinitialiser les filtres">
-            ${renderIcon("arrow-counterclockwise")}
-          </button>
         </div>
         <div class="epr-summary" aria-live="polite"></div>
       </section>
@@ -202,9 +264,12 @@
     sectionToggle: root.querySelector(".epr-multi-select-toggle"),
     sectionLabel: root.querySelector(".epr-section-filter-label"),
     sectionMenu: root.querySelector(".epr-multi-select-menu"),
+    filterToggle: root.querySelector(".epr-filter-toggle"),
+    filterCount: root.querySelector(".epr-filter-count"),
+    filterFields: root.querySelector(".epr-filter-fields"),
     toggle: root.querySelector('[data-action="toggle-original"]'),
     customScrollbar: root.querySelector("[data-custom-scrollbar]"),
-    customScrollbarThumb: root.querySelector("[data-custom-scrollbar-thumb]")
+    customScrollbarThumb: root.querySelector("[data-custom-scrollbar-thumb]"),
   };
   let scrollbarUpdateFrame = 0;
   let scrollbarDrag = null;
@@ -233,12 +298,21 @@
       if (!event.target.closest("[data-status-filter]")) closeStatusMenu();
       if (action === "rescan") startFullLoad({ reset: true });
       if (action === "toggle-original") toggleOriginal();
+      if (action === "toggle-filter-panel") toggleFilterPanel();
       if (action === "reset-filters") resetFilters();
       if (action === "toggle-status-menu") toggleStatusMenu();
-      if (action === "set-status") setStatusFilter(event.target.closest("[data-status-value]")?.dataset.statusValue || "all");
+      if (action === "set-status")
+        setStatusFilter(
+          event.target.closest("[data-status-value]")?.dataset.statusValue ||
+            "all",
+        );
       if (action === "toggle-section-menu") toggleSectionMenu();
       if (action === "clear-sections") setSelectedSections([]);
-      if (action === "toggle-section") toggleSelectedSection(event.target.closest("[data-section-value]")?.dataset.sectionValue || "");
+      if (action === "toggle-section")
+        toggleSelectedSection(
+          event.target.closest("[data-section-value]")?.dataset.sectionValue ||
+            "",
+        );
       if (action === "close-modal") closePostModal();
       if (action === "previous-post") showAdjacentPost(-1);
       if (action === "next-post") showAdjacentPost(1);
@@ -257,20 +331,49 @@
       }
     });
     document.addEventListener("keydown", handleKeyboard);
-    root.addEventListener("scroll", queueCustomScrollbarUpdate, { passive: true });
+    root.addEventListener("scroll", queueCustomScrollbarUpdate, {
+      passive: true,
+    });
     window.addEventListener("resize", queueCustomScrollbarUpdate);
-    els.customScrollbar.addEventListener("pointerdown", handleCustomScrollbarPointerDown);
-    els.customScrollbar.addEventListener("pointermove", handleCustomScrollbarPointerMove);
-    els.customScrollbar.addEventListener("pointerup", handleCustomScrollbarPointerEnd);
-    els.customScrollbar.addEventListener("pointercancel", handleCustomScrollbarPointerEnd);
-    els.customScrollbarThumb.addEventListener("pointermove", handleCustomScrollbarPointerMove);
-    els.customScrollbarThumb.addEventListener("pointerup", handleCustomScrollbarPointerEnd);
-    els.customScrollbarThumb.addEventListener("pointercancel", handleCustomScrollbarPointerEnd);
+    els.customScrollbar.addEventListener(
+      "pointerdown",
+      handleCustomScrollbarPointerDown,
+    );
+    els.customScrollbar.addEventListener(
+      "pointermove",
+      handleCustomScrollbarPointerMove,
+    );
+    els.customScrollbar.addEventListener(
+      "pointerup",
+      handleCustomScrollbarPointerEnd,
+    );
+    els.customScrollbar.addEventListener(
+      "pointercancel",
+      handleCustomScrollbarPointerEnd,
+    );
+    els.customScrollbarThumb.addEventListener(
+      "pointermove",
+      handleCustomScrollbarPointerMove,
+    );
+    els.customScrollbarThumb.addEventListener(
+      "pointerup",
+      handleCustomScrollbarPointerEnd,
+    );
+    els.customScrollbarThumb.addEventListener(
+      "pointercancel",
+      handleCustomScrollbarPointerEnd,
+    );
     window.addEventListener("popstate", syncModalFromUrl);
     window.addEventListener("hashchange", syncModalFromUrl);
 
-    const observer = new MutationObserver(debounce(() => scanAndRender(false), 650));
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const observer = new MutationObserver(
+      debounce(() => scanAndRender(false), 650),
+    );
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
 
     setTimeout(() => applyOriginalBackground(root), 700);
     setTimeout(() => applyOriginalBackground(root), 2500);
@@ -287,7 +390,14 @@
   function showInitialLoader() {
     root.classList.add("epr-loading", "epr-boot-loading");
     state.loadMessage = "Chargement complet du Padlet...";
-    updateLoadProgress({ found: 0, total: 0, percent: 0, round: 0, maxRounds: 0, stableRounds: 0 });
+    updateLoadProgress({
+      found: 0,
+      total: 0,
+      percent: 0,
+      round: 0,
+      maxRounds: 0,
+      stableRounds: 0,
+    });
   }
 
   function whenBodyReady() {
@@ -305,7 +415,9 @@
   function scanAndRender(force) {
     if (state.loadedFromApi && !state.isCheckingRecent) return;
     const posts = extractPosts();
-    const signature = posts.map((post) => `${post.title}|${post.text.length}|${post.dateKey}`).join("::");
+    const signature = posts
+      .map((post) => `${post.title}|${post.text.length}|${post.dateKey}`)
+      .join("::");
     if (!force && signature === state.lastSignature) return;
     state.lastSignature = signature;
     if (state.isCheckingRecent && state.cachedLatestDate) {
@@ -333,7 +445,14 @@
     state.isLoadingAll = true;
     root.classList.add("epr-loading");
     state.loadMessage = "Chargement complet du Padlet...";
-    updateLoadProgress({ found: 0, total: detectExpectedPostCount(), percent: 0, round: 0, maxRounds: 0, stableRounds: 0 });
+    updateLoadProgress({
+      found: 0,
+      total: detectExpectedPostCount(),
+      percent: 0,
+      round: 0,
+      maxRounds: 0,
+      stableRounds: 0,
+    });
     render();
 
     try {
@@ -342,7 +461,11 @@
       state.isLoadingAll = false;
       root.classList.remove("epr-loading");
       state.loadMessage = "";
-      updateLoadProgress({ found: state.posts.length, total: Math.max(state.loadProgress.total || 0, state.posts.length), percent: 100 });
+      updateLoadProgress({
+        found: state.posts.length,
+        total: Math.max(state.loadProgress.total || 0, state.posts.length),
+        percent: 100,
+      });
       if (state.loadedFromApi) {
         render();
         openPendingModalFromUrl();
@@ -354,7 +477,8 @@
   }
 
   async function startRecentLoad() {
-    if (state.isLoadingAll || state.isCheckingRecent || !state.cachedLatestDate) return;
+    if (state.isLoadingAll || state.isCheckingRecent || !state.cachedLatestDate)
+      return;
 
     state.isCheckingRecent = true;
     state.loadMessage = "Recherche des nouvelles publications...";
@@ -365,7 +489,9 @@
     } finally {
       state.isCheckingRecent = false;
       state.loadMessage = "";
-      state.posts = finalizePosts([...state.postMap.values()]).sort(comparePosts);
+      state.posts = finalizePosts([...state.postMap.values()]).sort(
+        comparePosts,
+      );
       updateSections();
       saveCachedPosts();
       render();
@@ -386,12 +512,24 @@
     await wait(500);
     scanAndRender(true);
     expectedTotal = Math.max(expectedTotal, detectExpectedPostCount());
-    updateLoadProgress({ found: state.posts.length, total: expectedTotal, round: 0, maxRounds, stableRounds });
+    updateLoadProgress({
+      found: state.posts.length,
+      total: expectedTotal,
+      round: 0,
+      maxRounds,
+      stableRounds,
+    });
 
     try {
       for (let round = 0; round < maxRounds; round += 1) {
         state.loadMessage = `Chargement complet du Padlet... ${state.posts.length} trouvee${state.posts.length > 1 ? "s" : ""}`;
-        updateLoadProgress({ found: state.posts.length, total: expectedTotal, round, maxRounds, stableRounds });
+        updateLoadProgress({
+          found: state.posts.length,
+          total: expectedTotal,
+          round,
+          maxRounds,
+          stableRounds,
+        });
         render();
 
         const moved = advanceLazyScroll(round);
@@ -406,7 +544,13 @@
           lastCount = state.posts.length;
         }
 
-        updateLoadProgress({ found: state.posts.length, total: expectedTotal, round: round + 1, maxRounds, stableRounds });
+        updateLoadProgress({
+          found: state.posts.length,
+          total: expectedTotal,
+          round: round + 1,
+          maxRounds,
+          stableRounds,
+        });
 
         if (!moved && stableRounds >= 3) break;
         if (stableRounds >= 6) break;
@@ -428,7 +572,9 @@
       document.body.style.zoom = "0.55";
       await wait(350);
       mergeRecentPosts(extractPosts(), cutoffDate);
-      state.posts = finalizePosts([...state.postMap.values()]).sort(comparePosts);
+      state.posts = finalizePosts([...state.postMap.values()]).sort(
+        comparePosts,
+      );
       updateSections();
       render();
 
@@ -439,7 +585,9 @@
         const moved = advanceLazyScroll(round);
         await wait(320);
         mergeRecentPosts(extractPosts(), cutoffDate);
-        state.posts = finalizePosts([...state.postMap.values()]).sort(comparePosts);
+        state.posts = finalizePosts([...state.postMap.values()]).sort(
+          comparePosts,
+        );
         updateSections();
 
         if (state.posts.length === lastCount) {
@@ -479,14 +627,23 @@
       for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
         const url = `https://padlet.com/api/10/wishes?wall_hashid=${encodeURIComponent(wallHashid)}&page_start=${encodeURIComponent(pageStart)}&v=`;
         const response = await fetch(url, { credentials: "include" });
-        if (!response.ok) throw new Error(`Padlet wishes API ${response.status}`);
+        if (!response.ok)
+          throw new Error(`Padlet wishes API ${response.status}`);
         const payload = await response.json();
         const pageWishes = Array.isArray(payload.data) ? payload.data : [];
         wishes.push(...pageWishes);
-        wallId ||= pageWishes.find((wish) => wish?.attributes?.wall_id)?.attributes?.wall_id || "";
+        wallId ||=
+          pageWishes.find((wish) => wish?.attributes?.wall_id)?.attributes
+            ?.wall_id || "";
 
         state.loadMessage = `Chargement API Padlet... ${wishes.length} publication${wishes.length > 1 ? "s" : ""} trouvee${wishes.length > 1 ? "s" : ""}`;
-        updateLoadProgress({ found: wishes.length, total: Math.max(state.loadProgress.total || 0, wishes.length), round: pageIndex + 1, maxRounds: 0, stableRounds: 0 });
+        updateLoadProgress({
+          found: wishes.length,
+          total: Math.max(state.loadProgress.total || 0, wishes.length),
+          round: pageIndex + 1,
+          maxRounds: 0,
+          stableRounds: 0,
+        });
         render();
 
         pageStart = payload.meta?.next || "";
@@ -496,7 +653,9 @@
       if (!wishes.length) return false;
 
       const sectionMap = await fetchPadletSectionMap(wallId);
-      const posts = wishes.map((wish, index) => apiWishToPost(wish, sectionMap, index)).filter(Boolean);
+      const posts = wishes
+        .map((wish, index) => apiWishToPost(wish, sectionMap, index))
+        .filter(Boolean);
       if (!posts.length) return false;
 
       state.postMap.clear();
@@ -510,7 +669,10 @@
       render();
       return true;
     } catch (error) {
-      console.warn("UglyPadlet API loading failed, falling back to DOM scan.", error);
+      console.warn(
+        "UglyPadlet API loading failed, falling back to DOM scan.",
+        error,
+      );
       state.loadedFromApi = false;
       root.dataset.loadSource = "dom";
       root.dataset.apiError = String(error?.message || error);
@@ -523,7 +685,10 @@
     if (!wallId) return sectionMap;
 
     try {
-      const response = await fetch(`https://padlet.com/api/5/wall_sections?wall_id=${encodeURIComponent(wallId)}&`, { credentials: "include" });
+      const response = await fetch(
+        `https://padlet.com/api/5/wall_sections?wall_id=${encodeURIComponent(wallId)}&`,
+        { credentials: "include" },
+      );
       if (!response.ok) return sectionMap;
       const payload = await response.json();
       (Array.isArray(payload.data) ? payload.data : []).forEach((section) => {
@@ -540,9 +705,28 @@
 
   function apiWishToPost(wish, sectionMap, index) {
     const attributes = wish?.attributes || {};
-    const title = cleanText(htmlToText(attributes.subject || attributes.headline || attributes.attachment_link?.title || "Communication"));
-    const body = cleanText(htmlToText(attributes.body || attributes.wish_content?.body || ""));
-    const attachmentTitle = cleanText(htmlToText(attributes.attachment_caption || attributes.attachment_link?.title || ""));
+    const title = chooseMeaningfulText(
+      attributes.subject,
+      attributes.headline,
+      attributes.attachment_link?.title,
+      "Communication",
+    );
+    const body = cleanText(
+      htmlToText(attributes.body || attributes.wish_content?.body || ""),
+    );
+    const rawAttachmentTitle = cleanText(
+      htmlToText(
+        attributes.attachment_caption ||
+          attributes.attachment_link?.title ||
+          "",
+      ),
+    );
+    const attachmentTitle = isImageAttachmentTitle(
+      rawAttachmentTitle,
+      attributes,
+    )
+      ? ""
+      : rawAttachmentTitle;
     const textParts = [title, body, attachmentTitle].filter(Boolean);
     const text = cleanText(textParts.join("\n\n"));
     if (!title || !text) return null;
@@ -553,7 +737,9 @@
     const sectionId = String(attributes.wall_section_id || "");
     const links = apiWishLinks(attributes, title);
     const images = apiWishImages(attributes);
-    const apiId = String(attributes.hashid || wish.id || attributes.id || hash(text));
+    const apiId = String(
+      attributes.hashid || wish.id || attributes.id || hash(text),
+    );
 
     return {
       id: `padlet-${apiId}`,
@@ -562,11 +748,12 @@
       text,
       section: sectionMap.get(sectionId) || "Non classee",
       urlSlug: normalizeWishSlug(attributes.hashid || ""),
-      dates: dates.length ? dates : (fallbackDate ? [fallbackDate] : []),
+      dates: dates.length ? dates : fallbackDate ? [fallbackDate] : [],
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
+      publishedAt: fallbackDate,
       links,
-      images
+      images,
     };
   }
 
@@ -574,26 +761,44 @@
     const candidates = [
       {
         href: attributes.attachment,
-        label: attributes.attachment_caption || attributes.attachment_link?.title || title
+        label:
+          attributes.attachment_caption ||
+          attributes.attachment_link?.title ||
+          title,
       },
       {
         href: attributes.attachment_link?.url,
-        label: attributes.attachment_link?.title || attributes.attachment_caption || title
+        label:
+          attributes.attachment_link?.title ||
+          attributes.attachment_caption ||
+          title,
       },
-      ...(Array.isArray(attributes.attachments) ? attributes.attachments.map((attachment) => ({
-        href: attachment.url || attachment.download_url || attachment.attachment,
-        label: attachment.title || attachment.name || title
-      })) : [])
+      ...(Array.isArray(attributes.attachments)
+        ? attributes.attachments.map((attachment) => ({
+            href:
+              attachment.url ||
+              attachment.download_url ||
+              attachment.attachment,
+            label: attachment.title || attachment.name || title,
+          }))
+        : []),
     ];
 
     return candidates
       .filter((link) => link.href)
+      .filter((link) => !isImageHref(link.href))
       .map((link) => ({
         href: link.href,
-        label: limit(cleanText(htmlToText(link.label || readableUrlLabel(link.href))), 90),
-        isPdf: isPdfHref(link.href) || /\.pdf(?:$|[?#])/i.test(link.href)
+        label: limit(
+          cleanText(htmlToText(link.label || readableUrlLabel(link.href))),
+          90,
+        ),
+        isPdf: isPdfHref(link.href) || /\.pdf(?:$|[?#])/i.test(link.href),
       }))
-      .filter((link, index, links) => links.findIndex((other) => other.href === link.href) === index)
+      .filter(
+        (link, index, links) =>
+          links.findIndex((other) => other.href === link.href) === index,
+      )
       .slice(0, 6);
   }
 
@@ -601,11 +806,13 @@
     const candidates = [
       attributes.attachment_link?.preview_image?.url,
       attributes.attachment_link?.provider_image?.url,
-      ...(Array.isArray(attributes.attachments) ? attributes.attachments.flatMap((attachment) => [
-        attachment.url,
-        attachment.thumbnail_url,
-        attachment.preview_url
-      ]) : [])
+      ...(Array.isArray(attributes.attachments)
+        ? attributes.attachments.flatMap((attachment) => [
+            attachment.url,
+            attachment.thumbnail_url,
+            attachment.preview_url,
+          ])
+        : []),
     ];
 
     return candidates
@@ -614,8 +821,37 @@
       .slice(0, 12);
   }
 
+  function isImageAttachmentTitle(title, attributes) {
+    const label = cleanText(title || "");
+    if (!label) return false;
+
+    const attachmentUrls = [
+      attributes.attachment,
+      attributes.attachment_link?.url,
+      attributes.attachment_link?.preview_image?.url,
+      attributes.attachment_link?.provider_image?.url,
+      ...(Array.isArray(attributes.attachments)
+        ? attributes.attachments.flatMap((attachment) => [
+            attachment.url,
+            attachment.download_url,
+            attachment.attachment,
+            attachment.thumbnail_url,
+            attachment.preview_url,
+          ])
+        : []),
+    ];
+    const hasImageAttachment = attachmentUrls.some(isImageHref);
+    const compact = removeAccents(label.toLowerCase()).replace(/\s+/g, "");
+    const looksLikeImageFilename =
+      /\.(?:png|jpe?g|gif|webp|heic|heif)$/i.test(label) ||
+      /^(?:pxl|img|dsc|dscn|image|photo)[_.-]?\d{4,}/i.test(compact);
+
+    return hasImageAttachment && looksLikeImageFilename;
+  }
+
   function findPadletWallHashid() {
-    const resourceMatch = performance.getEntriesByType("resource")
+    const resourceMatch = performance
+      .getEntriesByType("resource")
       .map((entry) => entry.name)
       .join("\n")
       .match(/[?&]wall_hashid=(board_[A-Za-z0-9]+)/);
@@ -640,21 +876,31 @@
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/(p|div|li|h[1-6])>/gi, "</$1>\n")
       .replace(/<(p|div|li|h[1-6])\b[^>]*>/gi, "\n<$1>");
-    return cleanText(template.content.textContent || template.innerHTML || String(value || ""))
-      .replace(/([.!?])(?=[A-ZÀ-ÖØ-Þ])/g, "$1 ");
+    return cleanText(
+      template.content.textContent || template.innerHTML || String(value || ""),
+    ).replace(/([.!?])(?=[A-ZÀ-ÖØ-Þ])/g, "$1 ");
   }
 
   function updateLoadProgress(partial) {
     state.loadProgress = {
       ...state.loadProgress,
-      ...partial
+      ...partial,
     };
 
     const total = state.loadProgress.total || 0;
     const found = state.loadProgress.found || 0;
-    const scanPercent = state.loadProgress.maxRounds ? Math.round((state.loadProgress.round / state.loadProgress.maxRounds) * 96) : 0;
-    const totalPercent = total ? Math.min(99, Math.round((found / total) * 100)) : 0;
-    state.loadProgress.percent = typeof partial.percent === "number" ? partial.percent : Math.max(scanPercent, totalPercent);
+    const scanPercent = state.loadProgress.maxRounds
+      ? Math.round(
+          (state.loadProgress.round / state.loadProgress.maxRounds) * 96,
+        )
+      : 0;
+    const totalPercent = total
+      ? Math.min(99, Math.round((found / total) * 100))
+      : 0;
+    state.loadProgress.percent =
+      typeof partial.percent === "number"
+        ? partial.percent
+        : Math.max(scanPercent, totalPercent);
 
     updateLoader();
   }
@@ -663,13 +909,21 @@
     if (!els.loader) return;
     const progress = state.loadProgress;
     const foundLabel = `${progress.found} communication${progress.found > 1 ? "s" : ""} trouvee${progress.found > 1 ? "s" : ""}`;
-    const totalLabel = progress.total ? ` sur ${progress.total} attendue${progress.total > 1 ? "s" : ""}` : "";
+    const totalLabel = progress.total
+      ? ` sur ${progress.total} attendue${progress.total > 1 ? "s" : ""}`
+      : "";
     const detail = progress.total
       ? "Le total detecte vient des donnees exposees par Padlet au chargement."
       : "Total Padlet non expose clairement, balayage complet en cours.";
 
-    els.loader.style.setProperty("--epr-loader-progress", `${Math.max(0, Math.min(100, progress.percent || 0)) * 3.6}deg`);
-    els.loaderPercent.textContent = progress.total || progress.percent >= 100 ? `${Math.round(progress.percent || 0)}%` : "...";
+    els.loader.style.setProperty(
+      "--epr-loader-progress",
+      `${Math.max(0, Math.min(100, progress.percent || 0)) * 3.6}deg`,
+    );
+    els.loaderPercent.textContent =
+      progress.total || progress.percent >= 100
+        ? `${Math.round(progress.percent || 0)}%`
+        : "...";
     els.loaderFound.textContent = `${foundLabel}${totalLabel}`;
     els.loaderDetail.textContent = progress.stableRounds
       ? `${detail} Stabilisation ${progress.stableRounds}/6.`
@@ -679,7 +933,7 @@
   function detectExpectedPostCount() {
     const numbers = [
       detectExpectedPostCountFromJson(),
-      detectExpectedPostCountFromText()
+      detectExpectedPostCountFromText(),
     ].filter((value) => Number.isFinite(value) && value > 0 && value < 1000);
     return numbers.length ? Math.max(...numbers) : 0;
   }
@@ -690,7 +944,7 @@
       ...text.matchAll(/\+\s*(\d{1,3})\s*[\u2022•]\s*\d+\s*jours?/gi),
       ...text.matchAll(/(\d{1,3})\s+publications?/gi),
       ...text.matchAll(/(\d{1,3})\s+communications?/gi),
-      ...text.matchAll(/sur\s+(\d{1,3})/gi)
+      ...text.matchAll(/sur\s+(\d{1,3})/gi),
     ].map((match) => Number(match[1]));
     return candidates.length ? Math.max(...candidates) : 0;
   }
@@ -705,11 +959,12 @@
       /"wishes_count"\s*:\s*(\d{1,3})/gi,
       /"subject_count"\s*:\s*(\d{1,3})/gi,
       /"postsCount"\s*:\s*(\d{1,3})/g,
-      /"wishCount"\s*:\s*(\d{1,3})/g
+      /"wishCount"\s*:\s*(\d{1,3})/g,
     ];
 
     patterns.forEach((pattern) => {
-      for (const match of html.matchAll(pattern)) candidates.push(Number(match[1]));
+      for (const match of html.matchAll(pattern))
+        candidates.push(Number(match[1]));
     });
 
     return candidates.length ? Math.max(...candidates) : 0;
@@ -719,7 +974,11 @@
     posts.forEach((post) => {
       const key = getPostKey(post);
       const existing = state.postMap.get(key);
-      if (!existing || post.text.length > existing.text.length || post.images.length > existing.images.length) {
+      if (
+        !existing ||
+        post.text.length > existing.text.length ||
+        post.images.length > existing.images.length
+      ) {
         state.postMap.set(key, { ...post, id: key });
       }
     });
@@ -735,7 +994,13 @@
   }
 
   function finalizePosts(posts) {
-    return removeAggregatePosts(removeContainedPosts(posts.filter(uniqueByContent).filter((post) => !isAggregateLikePost(post))));
+    return removeAggregatePosts(
+      removeContainedPosts(
+        posts
+          .filter(uniqueByContent)
+          .filter((post) => !isAggregateLikePost(post)),
+      ),
+    );
   }
 
   function getPostKey(post) {
@@ -753,10 +1018,15 @@
       if (!Array.isArray(cached.posts) || !cached.posts.length) return false;
 
       state.postMap.clear();
-      cached.posts.map(restoreCachedPost).filter(Boolean).forEach((post) => {
-        state.postMap.set(getPostKey(post), post);
-      });
-      state.posts = finalizePosts([...state.postMap.values()]).sort(comparePosts);
+      cached.posts
+        .map(restoreCachedPost)
+        .filter(Boolean)
+        .forEach((post) => {
+          state.postMap.set(getPostKey(post), post);
+        });
+      state.posts = finalizePosts([...state.postMap.values()]).sort(
+        comparePosts,
+      );
       state.cacheLoaded = true;
       state.cachedLatestDate = getLatestPostDate(state.posts);
       updateSections();
@@ -772,7 +1042,7 @@
     try {
       const payload = {
         savedAt: new Date().toISOString(),
-        posts: state.posts.map(cachePost)
+        posts: state.posts.map(cachePost),
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
       state.cacheLoaded = true;
@@ -793,15 +1063,21 @@
       date: post.date ? post.date.toISOString() : "",
       dates: post.dates.map((date) => date.toISOString()),
       dateKey: post.dateKey,
+      publishedAt: post.publishedAt ? post.publishedAt.toISOString() : "",
       links: post.links,
-      images: post.images.filter((src) => !src.startsWith("data:"))
+      images: post.images.filter((src) => !src.startsWith("data:")),
     };
   }
 
   function restoreCachedPost(post) {
     if (!post || !post.text || !post.title) return null;
-    const dates = Array.isArray(post.dates) ? post.dates.map((value) => new Date(value)).filter((date) => !Number.isNaN(date.getTime())) : [];
+    const dates = Array.isArray(post.dates)
+      ? post.dates
+          .map((value) => new Date(value))
+          .filter((date) => !Number.isNaN(date.getTime()))
+      : [];
     const date = post.date ? new Date(post.date) : null;
+    const publishedAt = post.publishedAt ? new Date(post.publishedAt) : null;
     return {
       id: post.id || hash(post.text),
       index: Number(post.index) || 0,
@@ -812,8 +1088,14 @@
       dates,
       date: date && !Number.isNaN(date.getTime()) ? date : null,
       dateKey: post.dateKey || "",
-      links: Array.isArray(post.links) ? post.links.map(normalizeCachedLink).filter(Boolean) : [],
-      images: Array.isArray(post.images) ? post.images : []
+      publishedAt:
+        publishedAt && !Number.isNaN(publishedAt.getTime())
+          ? publishedAt
+          : null,
+      links: Array.isArray(post.links)
+        ? post.links.map(normalizeCachedLink).filter(Boolean)
+        : [],
+      images: Array.isArray(post.images) ? post.images : [],
     };
   }
 
@@ -830,35 +1112,63 @@
     targets.forEach((target) => {
       const maxLeft = Math.max(0, target.scrollWidth - target.clientWidth);
       const maxTop = Math.max(0, target.scrollHeight - target.clientHeight);
-      const nextLeft = maxLeft ? Math.min(maxLeft, Math.round(round * target.clientWidth * 0.8)) : 0;
+      const nextLeft = maxLeft
+        ? Math.min(maxLeft, Math.round(round * target.clientWidth * 0.8))
+        : 0;
       const verticalRound = maxLeft ? round % 7 : round;
-      const nextTop = maxTop ? Math.min(maxTop, Math.round(verticalRound * target.clientHeight * 0.7)) : 0;
+      const nextTop = maxTop
+        ? Math.min(
+            maxTop,
+            Math.round(verticalRound * target.clientHeight * 0.7),
+          )
+        : 0;
 
-      if (Math.abs(target.scrollLeft - nextLeft) > 2 || Math.abs(target.scrollTop - nextTop) > 2) {
+      if (
+        Math.abs(target.scrollLeft - nextLeft) > 2 ||
+        Math.abs(target.scrollTop - nextTop) > 2
+      ) {
         target.scrollLeft = nextLeft;
         target.scrollTop = nextTop;
         moved = true;
       }
     });
 
-    window.scrollTo(Math.round(round * window.innerWidth * 0.75), Math.round((round % 7) * window.innerHeight * 0.7));
+    window.scrollTo(
+      Math.round(round * window.innerWidth * 0.75),
+      Math.round((round % 7) * window.innerHeight * 0.7),
+    );
     return moved;
   }
 
   function getScrollableTargets() {
-    const candidates = [document.scrollingElement, document.documentElement, document.body];
-    document.querySelectorAll("main, section, div, [role='main'], [role='list'], [data-testid], [class]").forEach((node) => {
-      if (node instanceof HTMLElement && !root.contains(node)) candidates.push(node);
-    });
+    const candidates = [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+    ];
+    document
+      .querySelectorAll(
+        "main, section, div, [role='main'], [role='list'], [data-testid], [class]",
+      )
+      .forEach((node) => {
+        if (node instanceof HTMLElement && !root.contains(node))
+          candidates.push(node);
+      });
 
     return [...new Set(candidates)]
       .filter((node) => node && node instanceof Element && !root.contains(node))
       .filter((node) => {
         const rect = node.getBoundingClientRect();
         if (rect.width < 120 || rect.height < 80) return false;
-        return node.scrollWidth > node.clientWidth + 40 || node.scrollHeight > node.clientHeight + 40;
+        return (
+          node.scrollWidth > node.clientWidth + 40 ||
+          node.scrollHeight > node.clientHeight + 40
+        );
       })
-      .sort((a, b) => (b.scrollWidth * b.scrollHeight) - (a.scrollWidth * a.scrollHeight))
+      .sort(
+        (a, b) =>
+          b.scrollWidth * b.scrollHeight - a.scrollWidth * a.scrollHeight,
+      )
       .slice(0, 24);
   }
 
@@ -866,13 +1176,18 @@
     return getScrollableTargets().map((target) => ({
       target,
       left: target.scrollLeft,
-      top: target.scrollTop
+      top: target.scrollTop,
     }));
   }
 
   function restoreScrollPositions(positions) {
     positions.forEach(({ target, left, top }) => {
-      if (target?.isConnected || target === document.scrollingElement || target === document.body || target === document.documentElement) {
+      if (
+        target?.isConnected ||
+        target === document.scrollingElement ||
+        target === document.body ||
+        target === document.documentElement
+      ) {
         target.scrollLeft = left;
         target.scrollTop = top;
       }
@@ -897,8 +1212,12 @@
       const raw = localStorage.getItem(FILTER_CACHE_KEY);
       const filters = raw ? JSON.parse(raw) : {};
       state.query = typeof filters.query === "string" ? filters.query : "";
-      state.status = ["all", "upcoming", "past"].includes(filters.status) ? filters.status : "all";
-      state.sections = normalizeSelectedSections(filters.sections || filters.section);
+      state.status = STATUS_OPTIONS.some(([value]) => value === filters.status)
+        ? filters.status
+        : "all";
+      state.sections = normalizeSelectedSections(
+        filters.sections || filters.section,
+      );
       state.pendingSections = [...state.sections];
       state.from = isInputDate(filters.from) ? filters.from : "";
       state.to = isInputDate(filters.to) ? filters.to : "";
@@ -916,14 +1235,17 @@
 
   function saveFilters() {
     try {
-      localStorage.setItem(FILTER_CACHE_KEY, JSON.stringify({
-        query: state.query,
-        status: state.status,
-        section: state.sections.length === 1 ? state.sections[0] : "all",
-        sections: state.sections,
-        from: state.from,
-        to: state.to
-      }));
+      localStorage.setItem(
+        FILTER_CACHE_KEY,
+        JSON.stringify({
+          query: state.query,
+          status: state.status,
+          section: state.sections.length === 1 ? state.sections[0] : "all",
+          sections: state.sections,
+          from: state.from,
+          to: state.to,
+        }),
+      );
     } catch {
       // If storage is unavailable, filters simply last for the current page.
     }
@@ -935,11 +1257,15 @@
     root.querySelector('[data-filter="to"]').value = state.to;
     syncStatusFilterControls();
     syncSectionFilterControls();
+    syncMobileFilterControls();
   }
 
   function syncStatusFilterControls() {
     const label = getStatusFilterLabel();
-    els.status.classList.toggle("epr-single-select-active", state.status !== "all");
+    els.status.classList.toggle(
+      "epr-single-select-active",
+      state.status !== "all",
+    );
     els.statusToggle.setAttribute("aria-label", label);
     els.statusLabel.textContent = label;
     els.statusMenu.querySelectorAll("[data-status-value]").forEach((option) => {
@@ -950,7 +1276,9 @@
   }
 
   function getStatusFilterLabel() {
-    return STATUS_OPTIONS.find(([value]) => value === state.status)?.[1] || "Toutes";
+    return (
+      STATUS_OPTIONS.find(([value]) => value === state.status)?.[1] || "Toutes"
+    );
   }
 
   function toggleStatusMenu() {
@@ -967,7 +1295,9 @@
   }
 
   function setStatusFilter(status) {
-    state.status = STATUS_OPTIONS.some(([value]) => value === status) ? status : "all";
+    state.status = STATUS_OPTIONS.some(([value]) => value === status)
+      ? status
+      : "all";
     closeStatusMenu();
     saveFilters();
     syncStatusFilterControls();
@@ -975,7 +1305,15 @@
   }
 
   function normalizeSelectedSections(value) {
-    if (Array.isArray(value)) return [...new Set(value.map((section) => cleanText(section)).filter(Boolean).filter((section) => section !== "all"))];
+    if (Array.isArray(value))
+      return [
+        ...new Set(
+          value
+            .map((section) => cleanText(section))
+            .filter(Boolean)
+            .filter((section) => section !== "all"),
+        ),
+      ];
     if (typeof value === "string" && value && value !== "all") return [value];
     return [];
   }
@@ -985,12 +1323,16 @@
     els.section.classList.toggle("epr-multi-select-active", selected.size > 0);
     els.sectionToggle.setAttribute("aria-label", getSectionFilterLabel());
     els.sectionLabel.textContent = getSectionFilterLabel();
-    els.sectionMenu.querySelectorAll("[data-section-value]").forEach((option) => {
-      const checked = selected.has(option.dataset.sectionValue);
-      option.classList.toggle("epr-selected", checked);
-      option.setAttribute("aria-checked", String(checked));
-    });
-    const allOption = els.sectionMenu.querySelector("[data-action='clear-sections']");
+    els.sectionMenu
+      .querySelectorAll("[data-section-value]")
+      .forEach((option) => {
+        const checked = selected.has(option.dataset.sectionValue);
+        option.classList.toggle("epr-selected", checked);
+        option.setAttribute("aria-checked", String(checked));
+      });
+    const allOption = els.sectionMenu.querySelector(
+      "[data-action='clear-sections']",
+    );
     allOption.classList.toggle("epr-selected", selected.size === 0);
     allOption.setAttribute("aria-checked", String(selected.size === 0));
   }
@@ -1051,33 +1393,97 @@
   function ensureResetListRendered(attempt = 0) {
     if (hasActiveFilters()) return;
     if (state.isLoadingAll || state.isCheckingRecent) {
-      if (attempt < 20) setTimeout(() => ensureResetListRendered(attempt + 1), 250);
+      if (attempt < 20)
+        setTimeout(() => ensureResetListRendered(attempt + 1), 250);
       return;
     }
     if (!state.posts.length) return;
 
     const renderedCards = els.list.querySelectorAll(".epr-card").length;
-    if (renderedCards === state.posts.length && !els.list.querySelector(".epr-empty")) return;
+    if (
+      renderedCards === state.posts.length &&
+      !els.list.querySelector(".epr-empty")
+    )
+      return;
 
     state.visiblePosts = state.posts;
-    els.summary.textContent = `${state.posts.length} communication${state.posts.length > 1 ? "s" : ""} affichee${state.posts.length > 1 ? "s" : ""} sur ${state.posts.length}.`;
+    els.summary.textContent = renderSummary(state.posts, state.posts.length);
     els.list.innerHTML = state.posts.map(renderPost).join("");
     queueCustomScrollbarUpdate();
   }
 
   function hasActiveFilters() {
-    return Boolean(state.query.trim() || state.status !== "all" || state.sections.length || state.from || state.to);
+    return Boolean(
+      state.query.trim() ||
+      state.status !== "all" ||
+      state.sections.length ||
+      state.from ||
+      state.to,
+    );
+  }
+
+  function getActiveFilterCount() {
+    return [
+      state.query.trim(),
+      state.status !== "all",
+      state.sections.length,
+      state.from,
+      state.to,
+    ].filter(Boolean).length;
+  }
+
+  function renderSummary(posts, total, source = "") {
+    const count = posts.length;
+    const label = hasActiveFilters()
+      ? `${count}/${total} communications`
+      : `${total} communication${total > 1 ? "s" : ""}`;
+    const newCount = posts.filter(isNewPost).length;
+    const newSuffix = newCount
+      ? ` dont ${newCount} nouvelle${newCount > 1 ? "s" : ""} depuis la derniere connexion le ${formatLastConnectionDate()}`
+      : "";
+    return `${label}${newSuffix}.${source}`;
+  }
+
+  function formatLastConnectionDate() {
+    return state.previousConnectionDate.toLocaleDateString("fr-CA", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+
+  function toggleFilterPanel() {
+    root.classList.toggle("epr-filters-open");
+    syncMobileFilterControls();
+  }
+
+  function syncMobileFilterControls() {
+    const isOpen = root.classList.contains("epr-filters-open");
+    const count = getActiveFilterCount();
+    els.filterToggle.setAttribute("aria-expanded", String(isOpen));
+    els.filterToggle.setAttribute(
+      "aria-label",
+      count ? `Filtres, ${count} actif${count > 1 ? "s" : ""}` : "Filtres",
+    );
+    els.filterCount.hidden = count === 0;
+    els.filterCount.textContent = String(count);
+    root.classList.toggle("epr-has-active-filters", count > 0);
   }
 
   function isInputDate(value) {
-    return typeof value === "string" && (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value));
+    return (
+      typeof value === "string" &&
+      (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value))
+    );
   }
 
   function toggleOriginal() {
     state.showOriginal = !state.showOriginal;
     root.classList.toggle("epr-minimized", state.showOriginal);
     setReaderScrollLock(!state.showOriginal);
-    els.toggle.textContent = state.showOriginal ? "Revenir au lecteur" : "Voir Padlet";
+    els.toggle.textContent = state.showOriginal
+      ? "Revenir au lecteur"
+      : "Voir Padlet";
     els.toggle.setAttribute("aria-pressed", String(state.showOriginal));
   }
 
@@ -1122,7 +1528,7 @@
       "[style*='background-image']",
       "[class*='background' i]",
       "[class*='wallpaper' i]",
-      "[class*='surface' i]"
+      "[class*='surface' i]",
     ];
 
     for (const selector of selectors) {
@@ -1143,7 +1549,7 @@
       "[data-testid*='post' i]",
       "[data-test-id*='post' i]",
       "[aria-label*='post' i]",
-      "[class*='post' i]"
+      "[class*='post' i]",
     ];
     const candidates = new Set();
 
@@ -1154,12 +1560,18 @@
     });
 
     if (candidates.size < 3) {
-      document.querySelectorAll("main div, section div, [role='listitem'], [data-testid], [class]").forEach((node) => {
-        if (isPostCandidate(node)) candidates.add(node);
-      });
+      document
+        .querySelectorAll(
+          "main div, section div, [role='listitem'], [data-testid], [class]",
+        )
+        .forEach((node) => {
+          if (isPostCandidate(node)) candidates.add(node);
+        });
     }
 
-    const posts = [...removeDuplicateContainers(removeNestedCandidates([...candidates]))]
+    const posts = [
+      ...removeDuplicateContainers(removeNestedCandidates([...candidates])),
+    ]
       .map(readPost)
       .filter(Boolean)
       .filter(uniqueByContent);
@@ -1174,16 +1586,17 @@
     const rect = node.getBoundingClientRect();
     const text = cleanText(node.innerText || node.textContent || "");
     if (isPadletUiChrome(text)) return false;
-    if (looksLikeBoardContainer(text) || hasMultiplePostDescendants(node)) return false;
+    if (looksLikeBoardContainer(text) || hasMultiplePostDescendants(node))
+      return false;
     if (text.length < 24 || text.length > 7000) return false;
-    if (rect.width < 160 || rect.height < 45 || rect.height > window.innerHeight * 1.8) return false;
+    if (rect.width < 120 || rect.height < 45) return false;
 
     const descriptor = `${node.tagName} ${node.className || ""} ${node.getAttribute("data-testid") || ""} ${node.getAttribute("aria-label") || ""}`;
     const score = [
       /article|post|card|subject|wish|surface|cell/i.test(descriptor),
       hasDate(text),
       node.querySelector("img, video, a[href]"),
-      text.split("\n").length >= 2
+      text.split("\n").length >= 2,
     ].filter(Boolean).length;
     return score >= 2;
   }
@@ -1202,7 +1615,9 @@
   function removeDuplicateContainers(nodes) {
     return nodes.filter((node) => {
       const nodeText = compactForCompare(node.innerText || "");
-      const childCandidates = nodes.filter((other) => other !== node && node.contains(other));
+      const childCandidates = nodes.filter(
+        (other) => other !== node && node.contains(other),
+      );
       if (childCandidates.length < 2) return true;
 
       const meaningfulChildren = childCandidates
@@ -1210,7 +1625,9 @@
         .filter((text) => text.length >= 24 && nodeText.includes(text));
       if (meaningfulChildren.length < 2) return true;
 
-      const longestChild = Math.max(...meaningfulChildren.map((text) => text.length));
+      const longestChild = Math.max(
+        ...meaningfulChildren.map((text) => text.length),
+      );
       return !(nodeText.length > longestChild * 1.35);
     });
   }
@@ -1220,22 +1637,36 @@
     if (!fullText) return null;
     if (looksLikeBoardContainer(fullText)) return null;
 
-    const lines = fullText.split("\n").map((line) => line.trim()).filter(Boolean);
-    const titleNode = node.querySelector("h1, h2, h3, strong, b, [data-testid*='title' i]");
-    const title = cleanText(titleNode?.innerText || lines.find((line) => line.length >= 4 && !isDateOnlyLine(line)) || "Communication");
     const dates = extractDates(fullText);
     const primaryDate = choosePrimaryDate(dates);
     const section = findSection(node, fullText);
     const links = [...node.querySelectorAll("a[href]")]
       .map((link) => normalizeLink(link))
       .filter(Boolean)
-      .filter((link, idx, arr) => arr.findIndex((other) => other.href === link.href) === idx)
+      .filter((link) => !isImageHref(link.href))
+      .filter(
+        (link, idx, arr) =>
+          arr.findIndex((other) => other.href === link.href) === idx,
+      )
       .slice(0, 4);
     const images = [...node.querySelectorAll("img")]
       .map((img) => img.currentSrc || img.src)
       .filter((src) => src && !/avatar|profile|emoji|icon/i.test(src))
       .filter((src, idx, arr) => arr.indexOf(src) === idx)
       .slice(0, 12);
+    const lines = fullText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const titleNode = node.querySelector(
+      "h1, h2, h3, strong, b, [data-testid*='title' i]",
+    );
+    const title = chooseMeaningfulText(
+      titleNode?.innerText,
+      lines.find((line) => line.length >= 4 && !isDateOnlyLine(line)),
+      links[0]?.label,
+      "Communication",
+    );
 
     return {
       id: hash(fullText),
@@ -1247,22 +1678,42 @@
       dates,
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
+      publishedAt: primaryDate,
       links,
-      images
+      images,
     };
   }
 
   function findSection(node, text) {
-    const detected = SECTION_KEYWORDS.find((keyword) => new RegExp(`(^|\\W)${escapeRegExp(keyword)}(\\W|$)`, "i").test(text));
+    const detected = SECTION_KEYWORDS.find((keyword) =>
+      new RegExp(`(^|\\W)${escapeRegExp(keyword)}(\\W|$)`, "i").test(text),
+    );
     if (detected) return normalizeSection(detected);
 
     let current = node.parentElement;
-    for (let depth = 0; current && depth < 5; depth += 1, current = current.parentElement) {
+    for (
+      let depth = 0;
+      current && depth < 5;
+      depth += 1, current = current.parentElement
+    ) {
       const heading = [...current.children].find((child) => {
-        return !child.contains(node) && child.matches?.("h1, h2, h3, [role='heading'], [aria-label]");
+        return (
+          !child.contains(node) &&
+          child.matches?.("h1, h2, h3, [role='heading'], [aria-label]")
+        );
       });
-      const label = cleanText(heading?.innerText || heading?.getAttribute("aria-label") || current.getAttribute("aria-label") || "");
-      if (label && label.length <= 45 && !/padlet|partager|connexion/i.test(label)) return label;
+      const label = cleanText(
+        heading?.innerText ||
+          heading?.getAttribute("aria-label") ||
+          current.getAttribute("aria-label") ||
+          "",
+      );
+      if (
+        label &&
+        label.length <= 45 &&
+        !/padlet|partager|connexion/i.test(label)
+      )
+        return label;
     }
 
     return "Non classee";
@@ -1270,11 +1721,18 @@
 
   function findPadletWishSlug(node) {
     const values = [];
-    [node, ...node.querySelectorAll("a[href], [href], [data-href], [data-url], [data-share-url]")].forEach((element) => {
-      ["href", "data-href", "data-url", "data-share-url"].forEach((attribute) => {
-        const value = element.getAttribute?.(attribute);
-        if (value) values.push(value);
-      });
+    [
+      node,
+      ...node.querySelectorAll(
+        "a[href], [href], [data-href], [data-url], [data-share-url]",
+      ),
+    ].forEach((element) => {
+      ["href", "data-href", "data-url", "data-share-url"].forEach(
+        (attribute) => {
+          const value = element.getAttribute?.(attribute);
+          if (value) values.push(value);
+        },
+      );
     });
 
     for (const value of values) {
@@ -1289,7 +1747,9 @@
     const slug = extractWishSlug(url.pathname);
     if (slug) return { type: "slug", value: slug };
 
-    const postId = url.searchParams.get("uglyPost") || new URLSearchParams(url.hash.replace(/^#/, "")).get("uglyPost");
+    const postId =
+      url.searchParams.get("uglyPost") ||
+      new URLSearchParams(url.hash.replace(/^#/, "")).get("uglyPost");
     return postId ? { type: "id", value: postId } : null;
   }
 
@@ -1299,7 +1759,9 @@
   }
 
   function normalizeWishSlug(value) {
-    return String(value || "").trim().replace(/^post_/i, "");
+    return String(value || "")
+      .trim()
+      .replace(/^post_/i, "");
   }
 
   function extractDates(text) {
@@ -1307,7 +1769,8 @@
     const dates = [];
     const numeric = /\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/g;
     const iso = /\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/g;
-    const written = /\b(\d{1,2})(?:er)?\s+(janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+(\d{2,4}))?\b/g;
+    const written =
+      /\b(\d{1,2})(?:er)?\s+(janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+(\d{2,4}))?\b/g;
 
     for (const match of normalized.matchAll(numeric)) {
       const day = Number(match[1]);
@@ -1330,7 +1793,10 @@
       pushValidDate(dates, year, month, day);
     }
 
-    return dates.filter((date, index, arr) => arr.findIndex((other) => sameDay(other, date)) === index);
+    return dates.filter(
+      (date, index, arr) =>
+        arr.findIndex((other) => sameDay(other, date)) === index,
+    );
   }
 
   function readPadletPublishedDate(attributes) {
@@ -1339,7 +1805,7 @@
       attributes.scheduled_at,
       attributes.created_at,
       attributes.updated_at,
-      attributes.content_updated_at
+      attributes.content_updated_at,
     ];
 
     for (const value of candidates) {
@@ -1367,14 +1833,20 @@
 
   function pushValidDate(dates, year, month, day) {
     const date = new Date(year, month, day);
-    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+    if (
+      date.getFullYear() === year &&
+      date.getMonth() === month &&
+      date.getDate() === day
+    ) {
       dates.push(startOfDay(date));
     }
   }
 
   function choosePrimaryDate(dates) {
     if (!dates.length) return null;
-    const upcoming = dates.filter((date) => date >= TODAY).sort((a, b) => a - b);
+    const upcoming = dates
+      .filter((date) => date >= TODAY)
+      .sort((a, b) => a - b);
     if (upcoming.length) return upcoming[0];
     return dates.sort((a, b) => b - a)[0];
   }
@@ -1387,23 +1859,31 @@
   }
 
   function updateSections() {
-    const current = new Set(state.pendingSections.length ? state.pendingSections : state.sections);
-    const sections = [...new Set(state.posts.map((post) => post.section).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
+    const current = new Set(
+      state.pendingSections.length ? state.pendingSections : state.sections,
+    );
+    const sections = [
+      ...new Set(state.posts.map((post) => post.section).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b, "fr"));
     state.sections = sections.filter((section) => current.has(section));
     state.pendingSections = [...state.sections];
-    els.sectionMenu.innerHTML = `
+    els.sectionMenu.innerHTML =
+      `
       <button type="button" class="epr-multi-select-option" data-action="clear-sections" role="checkbox">
         <span class="epr-checkbox-mark" aria-hidden="true"></span>
         <span>Toutes les sections</span>
       </button>
-    ` + sections.map((section) => {
-      return `
+    ` +
+      sections
+        .map((section) => {
+          return `
         <button type="button" class="epr-multi-select-option" data-action="toggle-section" data-section-value="${escapeHtml(section)}" role="checkbox">
           <span class="epr-checkbox-mark" aria-hidden="true"></span>
           <span>${escapeHtml(section)}</span>
         </button>
       `;
-    }).join("");
+        })
+        .join("");
     syncFilterControls();
   }
 
@@ -1411,8 +1891,17 @@
     try {
       const filtered = state.posts.filter(matchesFilters);
       state.visiblePosts = filtered;
-      const source = (state.isLoadingAll || state.isCheckingRecent) && state.loadMessage ? ` ${state.loadMessage}.` : state.cacheLoaded ? " Depuis le cache." : "";
-      els.summary.textContent = `${filtered.length} communication${filtered.length > 1 ? "s" : ""} affichee${filtered.length > 1 ? "s" : ""} sur ${state.posts.length}.${source}`;
+      const source =
+        (state.isLoadingAll || state.isCheckingRecent) && state.loadMessage
+          ? ` ${state.loadMessage}.`
+          : state.cacheLoaded
+            ? " Depuis le cache."
+            : "";
+      els.summary.textContent = renderSummary(
+        filtered,
+        state.posts.length,
+        source,
+      );
 
       if (state.isLoadingAll) {
         els.list.innerHTML = "";
@@ -1448,6 +1937,7 @@
       if (state.modalIndex >= 0) renderPostModal();
       openPendingModalFromUrl();
     } finally {
+      syncMobileFilterControls();
       queueCustomScrollbarUpdate();
     }
   }
@@ -1461,7 +1951,11 @@
   }
 
   function updateCustomScrollbar() {
-    if (!els.customScrollbar || !els.customScrollbarThumb || state.showOriginal) {
+    if (
+      !els.customScrollbar ||
+      !els.customScrollbarThumb ||
+      state.showOriginal
+    ) {
       els.customScrollbar.hidden = true;
       return;
     }
@@ -1475,9 +1969,17 @@
     els.customScrollbar.hidden = false;
     const trackHeight = els.customScrollbar.clientHeight;
     if (!trackHeight) return;
-    const thumbHeight = Math.min(trackHeight, Math.max(48, Math.round(trackHeight * (root.clientHeight / root.scrollHeight))));
+    const thumbHeight = Math.min(
+      trackHeight,
+      Math.max(
+        48,
+        Math.round(trackHeight * (root.clientHeight / root.scrollHeight)),
+      ),
+    );
     const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
-    const thumbTop = maxThumbTop ? Math.round((root.scrollTop / maxScroll) * maxThumbTop) : 0;
+    const thumbTop = maxThumbTop
+      ? Math.round((root.scrollTop / maxScroll) * maxThumbTop)
+      : 0;
     els.customScrollbarThumb.style.height = `${thumbHeight}px`;
     els.customScrollbarThumb.style.transform = `translateY(${thumbTop}px)`;
   }
@@ -1497,7 +1999,7 @@
     scrollbarDrag = {
       pointerId: event.pointerId,
       startY: event.clientY,
-      startTop: thumbRect.top - trackRect.top
+      startTop: thumbRect.top - trackRect.top,
     };
     els.customScrollbar.setPointerCapture(event.pointerId);
     els.customScrollbarThumb.classList.add("is-dragging");
@@ -1510,7 +2012,11 @@
     const thumbHeight = els.customScrollbarThumb.offsetHeight;
     const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
     const maxScroll = root.scrollHeight - root.clientHeight;
-    const nextTop = clamp(scrollbarDrag.startTop + event.clientY - scrollbarDrag.startY, 0, maxThumbTop);
+    const nextTop = clamp(
+      scrollbarDrag.startTop + event.clientY - scrollbarDrag.startY,
+      0,
+      maxThumbTop,
+    );
     root.scrollTop = maxThumbTop ? (nextTop / maxThumbTop) * maxScroll : 0;
     updateCustomScrollbar();
   }
@@ -1531,42 +2037,76 @@
     const thumbHeight = els.customScrollbarThumb.offsetHeight || 48;
     const maxThumbTop = Math.max(0, trackRect.height - thumbHeight);
     const maxScroll = root.scrollHeight - root.clientHeight;
-    const nextTop = clamp(clientY - trackRect.top - thumbHeight / 2, 0, maxThumbTop);
+    const nextTop = clamp(
+      clientY - trackRect.top - thumbHeight / 2,
+      0,
+      maxThumbTop,
+    );
     root.scrollTop = maxThumbTop ? (nextTop / maxThumbTop) * maxScroll : 0;
     updateCustomScrollbar();
   }
 
   function matchesFilters(post) {
     const query = removeAccents(state.query.trim().toLowerCase());
-    const linkText = post.links.map((link) => `${link.label} ${link.href}`).join(" ");
-    if (query && !removeAccents(`${post.title} ${post.text} ${post.section} ${linkText}`.toLowerCase()).includes(query)) return false;
-    if (state.sections.length && !state.sections.includes(post.section)) return false;
-    if (state.status === "past" && (!post.date || post.date >= TODAY)) return false;
-    if (state.status === "upcoming" && (!post.date || post.date < TODAY)) return false;
-    if (state.from && (!post.date || post.date < parseInputDate(state.from))) return false;
-    if (state.to && (!post.date || post.date > parseInputDate(state.to))) return false;
+    const linkText = post.links
+      .map((link) => `${link.label} ${link.href}`)
+      .join(" ");
+    if (
+      query &&
+      !removeAccents(
+        `${post.title} ${post.text} ${post.section} ${linkText}`.toLowerCase(),
+      ).includes(query)
+    )
+      return false;
+    if (state.sections.length && !state.sections.includes(post.section))
+      return false;
+    if (state.status === "past" && (!post.date || post.date >= TODAY))
+      return false;
+    if (state.status === "upcoming" && (!post.date || post.date < TODAY))
+      return false;
+    if (state.status === "new" && !isNewPost(post)) return false;
+    if (state.from && (!post.date || post.date < parseInputDate(state.from)))
+      return false;
+    if (state.to && (!post.date || post.date > parseInputDate(state.to)))
+      return false;
     return true;
   }
 
   function renderPost(post) {
-    const dateLabel = post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee";
-    const body = renderFormattedText(getPostBodyText(post, { omitLinkLabels: true }));
+    const dateLabel = post.date
+      ? post.date.toLocaleDateString("fr-CA", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : "Date non detectee";
+    const body = renderFormattedText(
+      getPostBodyText(post, { omitLinkLabels: true }),
+    );
     const displayLinks = getDisplayLinks(post);
     const hasPdf = displayLinks.some(isPdfLink);
-    const youtubeLink = displayLinks.find(isYouTubeLink);
+    const videoLink = displayLinks.find(isEmbeddedVideoLink);
     const links = renderLinks(displayLinks);
-    const images = hasPdf || youtubeLink ? "" : post.images.map((src) => `<img src="${escapeHtml(src)}" alt="" loading="lazy">`).join("");
+    const images =
+      hasPdf || videoLink
+        ? ""
+        : post.images
+            .map(
+              (src) => `<img src="${escapeHtml(src)}" alt="" loading="lazy">`,
+            )
+            .join("");
 
     return `
       <article class="epr-card" data-post-id="${escapeHtml(post.id)}" tabindex="0" role="button" aria-label="Ouvrir ${escapeHtml(post.title)}">
         <div class="epr-card-meta">
-          <span class="epr-date-badge">${escapeHtml(dateLabel)}</span>
+          <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(dateLabel)}</span>
           ${renderSectionBadge(post.section)}
         </div>
         <h2>${escapeHtml(post.title)}</h2>
-        ${youtubeLink ? renderYouTubeViewer(youtubeLink, { compact: true }) : ""}
+        ${videoLink ? renderVideoViewer(videoLink, { compact: true }) : ""}
         ${images ? `<div class="epr-images">${images}</div>` : ""}
-        <p>${body}</p>
+        ${body ? `<p>${body}</p>` : ""}
         ${links ? `<div class="epr-links">${links}</div>` : ""}
       </article>
     `;
@@ -1585,13 +2125,16 @@
     state.modalIndex = -1;
     state.modalImageIndex = 0;
     state.pendingModalRequest = null;
+    destroyModalSwipe();
     root.querySelector(".epr-modal")?.remove();
     if (updateUrl) updateUrlForBoard();
   }
 
   function showAdjacentPost(direction, { updateUrl = true } = {}) {
     if (state.modalIndex < 0 || !state.visiblePosts.length) return;
-    state.modalIndex = (state.modalIndex + direction + state.visiblePosts.length) % state.visiblePosts.length;
+    state.modalIndex =
+      (state.modalIndex + direction + state.visiblePosts.length) %
+      state.visiblePosts.length;
     state.modalImageIndex = 0;
     if (updateUrl) updateUrlForPost(state.visiblePosts[state.modalIndex]);
     renderPostModal();
@@ -1600,7 +2143,9 @@
   function showAdjacentImage(direction) {
     const post = state.visiblePosts[state.modalIndex];
     if (!post || post.images.length < 2) return;
-    state.modalImageIndex = (state.modalImageIndex + direction + post.images.length) % post.images.length;
+    state.modalImageIndex =
+      (state.modalImageIndex + direction + post.images.length) %
+      post.images.length;
     renderPostModal();
   }
 
@@ -1616,10 +2161,12 @@
   function openPendingModalFromUrl() {
     const request = state.pendingModalRequest;
     if (!request || !state.visiblePosts.length) return false;
-    const requestedSlug = request.type === "slug" ? normalizeWishSlug(request.value) : "";
+    const requestedSlug =
+      request.type === "slug" ? normalizeWishSlug(request.value) : "";
 
     const index = state.visiblePosts.findIndex((post) => {
-      if (request.type === "slug") return normalizeWishSlug(post.urlSlug) === requestedSlug;
+      if (request.type === "slug")
+        return normalizeWishSlug(post.urlSlug) === requestedSlug;
       return post.id === request.value;
     });
     if (index < 0) return false;
@@ -1636,7 +2183,9 @@
     if (!post) return;
     const url = new URL(location.href);
     const useWishUrl = USE_PADLET_WISH_URLS && post.urlSlug;
-    url.pathname = useWishUrl ? `${BOARD_PATH.replace(/\/$/, "")}/wish/${encodeURIComponent(post.urlSlug)}` : BOARD_PATH;
+    url.pathname = useWishUrl
+      ? `${BOARD_PATH.replace(/\/$/, "")}/wish/${encodeURIComponent(post.urlSlug)}`
+      : BOARD_PATH;
     if (useWishUrl) {
       url.searchParams.delete("uglyPost");
       url.hash = "";
@@ -1645,7 +2194,9 @@
       url.hash = "";
     }
     pushUrlIfChanged(url);
-    state.pendingModalRequest = useWishUrl ? { type: "slug", value: post.urlSlug } : { type: "id", value: post.id };
+    state.pendingModalRequest = useWishUrl
+      ? { type: "slug", value: post.urlSlug }
+      : { type: "id", value: post.id };
   }
 
   function updateUrlForBoard() {
@@ -1658,7 +2209,8 @@
 
   function pushUrlIfChanged(url) {
     const next = url.href;
-    if (next !== location.href) history.pushState({ uglyPadlet: true }, "", next);
+    if (next !== location.href)
+      history.pushState({ uglyPadlet: true }, "", next);
   }
 
   function renderPostModal() {
@@ -1669,18 +2221,20 @@
     }
 
     const pdfLink = getDisplayLinks(post).find(isPdfLink);
+    destroyModalSwipe();
     root.querySelector(".epr-modal")?.remove();
     const modal = document.createElement("div");
     modal.className = pdfLink ? "epr-modal epr-modal-pdf" : "epr-modal";
     modal.setAttribute("role", "dialog");
     modal.setAttribute("aria-modal", "true");
     modal.setAttribute("aria-label", post.title);
-    const panel = pdfLink ? `
+    const panel = pdfLink
+      ? `
       <article class="epr-modal-panel epr-modal-panel-pdf">
         <header class="epr-modal-header">
           <div>
             <div class="epr-card-meta">
-              <span class="epr-date-badge">${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
+              <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
               ${renderSectionBadge(post.section)}
               <span class="epr-count-badge">${state.modalIndex + 1} / ${state.visiblePosts.length}</span>
             </div>
@@ -1691,12 +2245,13 @@
         ${renderPdfDescription(post)}
         ${renderPdfFrame(pdfLink)}
       </article>
-    ` : `
+    `
+      : `
       <article class="epr-modal-panel">
         <header class="epr-modal-header">
           <div>
             <div class="epr-card-meta">
-              <span class="epr-date-badge">${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
+              <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
               ${renderSectionBadge(post.section)}
               <span class="epr-count-badge">${state.modalIndex + 1} / ${state.visiblePosts.length}</span>
             </div>
@@ -1717,26 +2272,52 @@
     `;
     root.appendChild(modal);
     if (pdfLink) resolveModalPdfViewer(modal, pdfLink);
+    enableModalSwipe(modal);
     modal.querySelector(".epr-modal-close")?.focus();
   }
 
+  function enableModalSwipe(modal) {
+    const panel = modal.querySelector(".epr-modal-panel");
+    const manager = new Hammer.Manager(panel);
+    manager.add(
+      new Hammer.Swipe({
+        direction: Hammer.DIRECTION_HORIZONTAL,
+        threshold: 34,
+        velocity: 0.25,
+      }),
+    );
+    manager.on("swipeleft", () => showAdjacentPost(1));
+    manager.on("swiperight", () => showAdjacentPost(-1));
+    modal.dataset.swipe = "hammerjs";
+    state.modalSwipeManager = manager;
+  }
+
+  function destroyModalSwipe() {
+    state.modalSwipeManager?.destroy();
+    state.modalSwipeManager = null;
+  }
+
   function renderPostBody(post) {
-    const body = renderFormattedText(getPostBodyText(post, { omitLinkLabels: true }));
+    const body = renderFormattedText(
+      getPostBodyText(post, { omitLinkLabels: true }),
+    );
     const displayLinks = getDisplayLinks(post);
     const links = renderLinks(displayLinks);
     const pdfLink = displayLinks.find(isPdfLink);
-    const youtubeLink = displayLinks.find(isYouTubeLink);
+    const videoLink = displayLinks.find(isEmbeddedVideoLink);
     return `
       ${pdfLink ? renderPdfViewer(pdfLink) : ""}
-      ${!pdfLink && youtubeLink ? renderYouTubeViewer(youtubeLink) : ""}
-      ${!pdfLink && !youtubeLink ? renderImageGallery(post) : ""}
+      ${!pdfLink && videoLink ? renderVideoViewer(videoLink) : ""}
+      ${!pdfLink && !videoLink ? renderImageGallery(post) : ""}
       ${body ? `<p class="epr-post-text">${body}</p>` : ""}
       ${links ? `<div class="epr-links">${links}</div>` : ""}
     `;
   }
 
   function renderPdfDescription(post) {
-    const body = renderFormattedText(getPostBodyText(post, { omitLinkLabels: true }));
+    const body = renderFormattedText(
+      getPostBodyText(post, { omitLinkLabels: true }),
+    );
     return body ? `<div class="epr-pdf-description"><p>${body}</p></div>` : "";
   }
 
@@ -1744,20 +2325,31 @@
     const paths = {
       "arrow-counterclockwise": [
         "M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2v1z",
-        "M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"
+        "M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z",
       ],
       "chevron-left": [
-        "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
+        "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z",
       ],
       "chevron-right": [
-        "M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
+        "M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z",
       ],
       "chevron-down": [
-        "M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"
+        "M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z",
+      ],
+      filter: [
+        "M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z",
+      ],
+      download: [
+        "M.5 9.9a.5.5 0 0 1 .5.5v2.5A1.1 1.1 0 0 0 2.1 14h11.8a1.1 1.1 0 0 0 1.1-1.1v-2.5a.5.5 0 0 1 1 0v2.5a2.1 2.1 0 0 1-2.1 2.1H2.1A2.1 2.1 0 0 1 0 12.9v-2.5a.5.5 0 0 1 .5-.5z",
+        "M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z",
+      ],
+      "box-arrow-up-right": [
+        "M8.636 3.5a.5.5 0 0 0 0 1h2.657L6.146 9.646a.5.5 0 1 0 .708.708L12 5.207v2.657a.5.5 0 0 0 1 0V4a.5.5 0 0 0-.5-.5H8.636z",
+        "M2.5 2A1.5 1.5 0 0 0 1 3.5v10A1.5 1.5 0 0 0 2.5 15h10a1.5 1.5 0 0 0 1.5-1.5v-3a.5.5 0 0 0-1 0v3a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h3a.5.5 0 0 0 0-1h-3z",
       ],
       "x-lg": [
-        "M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"
-      ]
+        "M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z",
+      ],
     };
     const iconPaths = paths[name] || paths["x-lg"];
     return `
@@ -1771,7 +2363,7 @@
 
   function getPostBodyText(post, { omitLinkLabels = false } = {}) {
     let text = stripDuplicateTitle(post.text, post.title);
-    if (!omitLinkLabels) return cleanText(text);
+    if (!omitLinkLabels) return cleanPostBodyText(text);
 
     const labels = getDisplayLinks(post)
       .flatMap((link) => [link.label, `PDF - ${link.label}`])
@@ -1779,39 +2371,94 @@
       .filter(Boolean)
       .sort((a, b) => b.length - a.length);
 
-    const lines = cleanText(text).split("\n").map((line) => cleanText(line)).filter(Boolean);
-    return repairPadletTextSpacing(cleanText(lines.filter((line) => !labels.includes(line)).join("\n")));
+    const lines = getVisibleBodyLines(text);
+    return cleanPostBodyText(
+      repairPadletTextSpacing(
+        cleanText(lines.filter((line) => !labels.includes(line)).join("\n")),
+      ),
+    );
+  }
+
+  function cleanPostBodyText(text) {
+    const body = cleanText(getVisibleBodyLines(text).join("\n"));
+    return isEmptyBodyPlaceholder(body) ? "" : body;
+  }
+
+  function getVisibleBodyLines(text) {
+    return cleanText(text)
+      .split("\n")
+      .map((line) => cleanText(line))
+      .filter((line) => line && !isEmptyBodyPlaceholder(line));
+  }
+
+  function isEmptyBodyPlaceholder(text) {
+    return ["vide", "empty"].includes(normalizePlaceholderText(text));
+  }
+
+  function chooseMeaningfulText(...values) {
+    const candidate = values
+      .map((value) => cleanText(htmlToText(value || "")))
+      .find((value) => value && !isEmptyBodyPlaceholder(value));
+    return candidate || "Communication";
+  }
+
+  function normalizePlaceholderText(text) {
+    return removeAccents(
+      cleanText(String(text || ""))
+        .replace(/[\u200b-\u200d\ufeff]/g, "")
+        .toLowerCase(),
+    ).replace(/\s+/g, " ");
   }
 
   function renderFormattedText(text) {
-    return renderAutoLinkedText(normalizeSentenceSpacing(text).replace(/\n{2,}/g, "\n")).replace(/\n/g, "<br>");
+    return renderAutoLinkedText(
+      normalizeSentenceSpacing(text).replace(/\n{2,}/g, "\n"),
+    ).replace(/\n/g, "<br>");
   }
 
   function renderAutoLinkedText(text) {
     const source = String(text || "");
-    const urlPattern = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+    const linkPattern = createInlineLinkPattern();
     let result = "";
     let cursor = 0;
     let match;
 
-    while ((match = urlPattern.exec(source))) {
+    while ((match = linkPattern.exec(source))) {
       const rawMatch = match[0];
       const start = match.index;
       const { url, suffix } = splitTrailingUrlPunctuation(rawMatch);
-      const href = url.startsWith("www.") ? `https://${url}` : url;
+      const href = isEmailAddress(url)
+        ? `mailto:${url}`
+        : url.startsWith("www.")
+          ? `https://${url}`
+          : url;
+      const target = href.startsWith("mailto:")
+        ? ""
+        : ' target="_blank" rel="noopener noreferrer"';
 
       result += escapeHtml(source.slice(cursor, start));
-      result += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(suffix)}`;
+      result += `<a href="${escapeHtml(href)}"${target}>${escapeHtml(url)}</a>${escapeHtml(suffix)}`;
       cursor = start + rawMatch.length;
     }
 
     return result + escapeHtml(source.slice(cursor));
   }
 
+  function createInlineLinkPattern() {
+    return /\b(?:https?:\/\/|www\.)[^\s<>"']+|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+  }
+
+  function isEmailAddress(value) {
+    return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || ""));
+  }
+
   function splitTrailingUrlPunctuation(value) {
     let url = String(value || "");
     let suffix = "";
-    while (/[.,!?;:]$/.test(url) || (url.endsWith(")") && !hasBalancedParentheses(url))) {
+    while (
+      /[.,!?;:]$/.test(url) ||
+      (url.endsWith(")") && !hasBalancedParentheses(url))
+    ) {
       suffix = url.slice(-1) + suffix;
       url = url.slice(0, -1);
     }
@@ -1826,23 +2473,40 @@
 
   function normalizeSentenceSpacing(text) {
     const source = cleanText(String(text || ""));
-    const urlPattern = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+    const linkPattern = createInlineLinkPattern();
     let result = "";
     let cursor = 0;
     let match;
 
-    while ((match = urlPattern.exec(source))) {
-      result += source.slice(cursor, match.index).replace(/([.!?])(?=\S)/g, (mark) => `${mark} `);
+    while ((match = linkPattern.exec(source))) {
+      result += source
+        .slice(cursor, match.index)
+        .replace(/([.!?])(?=\S)/g, (mark) => `${mark} `);
       result += match[0];
       cursor = match.index + match[0].length;
     }
 
-    result += source.slice(cursor).replace(/([.!?])(?=\S)/g, (mark) => `${mark} `);
+    result += source
+      .slice(cursor)
+      .replace(/([.!?])(?=\S)/g, (mark) => `${mark} `);
     return repairPadletTextSpacing(result);
   }
 
   function repairPadletTextSpacing(text) {
     return String(text || "").replace(/MEQ\.Un/g, "MEQ. Un");
+  }
+
+  function renderNewBadge(post) {
+    return isNewPost(post)
+      ? '<span class="epr-new-badge" aria-label="Nouvelle publication"></span>'
+      : "";
+  }
+
+  function isNewPost(post) {
+    if (!state.previousConnectionDate) return false;
+    const postDate = post.publishedAt || post.date;
+    if (!postDate) return false;
+    return startOfDay(postDate) >= startOfDay(state.previousConnectionDate);
   }
 
   function renderSectionBadge(section) {
@@ -1851,21 +2515,24 @@
   }
 
   function getSectionBadgeColors(section) {
-    const seedText = removeAccents(cleanText(String(section || "Non classee")).toLowerCase()) || "non-classee";
+    const seedText =
+      removeAccents(
+        cleanText(String(section || "Non classee")).toLowerCase(),
+      ) || "non-classee";
     const seed = unsignedHash(seedText);
     const hue = seed % 360;
     const saturation = 52 + ((seed >>> 8) % 22);
     const preferredLightness = 38 + ((seed >>> 16) % 38);
     const textCandidates = [
       { color: "#17242b", rgb: [23, 36, 43] },
-      { color: "#ffffff", rgb: [255, 255, 255] }
+      { color: "#ffffff", rgb: [255, 255, 255] },
     ];
     const lightnessCandidates = [
       preferredLightness,
       Math.min(84, preferredLightness + 18),
       Math.max(30, preferredLightness - 18),
       82,
-      32
+      32,
     ];
 
     let best = null;
@@ -1879,7 +2546,9 @@
           return {
             background: rgbToHex(rgb),
             foreground: text.color,
-            border: rgbToHex(hslToRgb(hue, saturation, Math.max(22, lightness - 14)))
+            border: rgbToHex(
+              hslToRgb(hue, saturation, Math.max(22, lightness - 14)),
+            ),
           };
         }
       }
@@ -1888,7 +2557,9 @@
     return {
       background: rgbToHex(best.rgb),
       foreground: best.foreground,
-      border: rgbToHex(hslToRgb(hue, saturation, Math.max(22, best.lightness - 14)))
+      border: rgbToHex(
+        hslToRgb(hue, saturation, Math.max(22, best.lightness - 14)),
+      ),
     };
   }
 
@@ -1905,14 +2576,20 @@
     const s = saturation / 100;
     const l = lightness / 100;
     const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((hue / 60) % 2 - 1));
+    const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
     const m = l - c / 2;
-    const [r, g, b] = hue < 60 ? [c, x, 0]
-      : hue < 120 ? [x, c, 0]
-      : hue < 180 ? [0, c, x]
-      : hue < 240 ? [0, x, c]
-      : hue < 300 ? [x, 0, c]
-      : [c, 0, x];
+    const [r, g, b] =
+      hue < 60
+        ? [c, x, 0]
+        : hue < 120
+          ? [x, c, 0]
+          : hue < 180
+            ? [0, c, x]
+            : hue < 240
+              ? [0, x, c]
+              : hue < 300
+                ? [x, 0, c]
+                : [c, 0, x];
     return [r, g, b].map((channel) => Math.round((channel + m) * 255));
   }
 
@@ -1921,15 +2598,23 @@
   }
 
   function contrastRatio(first, second) {
-    const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
-    const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+    const lighter = Math.max(
+      relativeLuminance(first),
+      relativeLuminance(second),
+    );
+    const darker = Math.min(
+      relativeLuminance(first),
+      relativeLuminance(second),
+    );
     return (lighter + 0.05) / (darker + 0.05);
   }
 
   function relativeLuminance(rgb) {
     const [r, g, b] = rgb.map((channel) => {
       const value = channel / 255;
-      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      return value <= 0.03928
+        ? value / 12.92
+        : ((value + 0.055) / 1.055) ** 2.4;
     });
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
@@ -1941,9 +2626,11 @@
     }
 
     const activeIndex = Math.min(state.modalImageIndex, post.images.length - 1);
-    const dots = post.images.map((_, index) => {
-      return `<span class="${index === activeIndex ? "epr-gallery-dot epr-gallery-dot-active" : "epr-gallery-dot"}"></span>`;
-    }).join("");
+    const dots = post.images
+      .map((_, index) => {
+        return `<span class="${index === activeIndex ? "epr-gallery-dot epr-gallery-dot-active" : "epr-gallery-dot"}"></span>`;
+      })
+      .join("");
 
     return `
       <section class="epr-gallery" aria-label="Photos">
@@ -1961,11 +2648,16 @@
   function normalizeLink(link) {
     const href = link.href;
     if (!href || href.startsWith("javascript:")) return null;
-    const text = cleanText(link.innerText || link.textContent || link.getAttribute("aria-label") || "");
+    const text = cleanText(
+      link.innerText ||
+        link.textContent ||
+        link.getAttribute("aria-label") ||
+        "",
+    );
     return {
       href,
       label: limit(text || readableUrlLabel(href), 90),
-      isPdf: isPdfHref(href) || /(^|\W)pdf(\W|$)/i.test(text)
+      isPdf: isPdfHref(href) || /(^|\W)pdf(\W|$)/i.test(text),
     };
   }
 
@@ -1973,11 +2665,14 @@
     const isPdfPost = isLikelyPdfPost(post);
     return post.links.map((link, index) => {
       const shouldUpgradePdf = isPdfPost && index === 0 && !link.isPdf;
-      const label = shouldUpgradePdf || isOpaqueLinkLabel(link.label) ? post.title : link.label;
+      const label =
+        shouldUpgradePdf || isOpaqueLinkLabel(link.label)
+          ? post.title
+          : link.label;
       return {
         ...link,
         label: limit(label, 90),
-        isPdf: Boolean(link.isPdf) || shouldUpgradePdf
+        isPdf: Boolean(link.isPdf) || shouldUpgradePdf,
       };
     });
   }
@@ -1987,33 +2682,36 @@
       return {
         href: link,
         label: readableUrlLabel(link),
-        isPdf: isPdfHref(link)
+        isPdf: isPdfHref(link),
       };
     }
     if (!link || typeof link.href !== "string") return null;
     return {
       href: link.href,
       label: limit(link.label || readableUrlLabel(link.href), 90),
-      isPdf: Boolean(link.isPdf) || isPdfHref(link.href)
+      isPdf: Boolean(link.isPdf) || isPdfHref(link.href),
     };
   }
 
   function renderLinks(links) {
-    return links.map((link) => {
-      const label = link.isPdf ? `PDF - ${link.label}` : link.label;
-      return `<a href="${escapeHtml(link.href)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
-    }).join("");
+    return links
+      .map((link) => {
+        const label = link.isPdf ? `PDF - ${link.label}` : link.label;
+        const icon = isDownloadLink(link) ? "download" : "box-arrow-up-right";
+        return `<a href="${escapeHtml(link.href)}" target="_blank" rel="noreferrer">${renderIcon(icon)}<span>${escapeHtml(label)}</span></a>`;
+      })
+      .join("");
   }
 
-  function renderYouTubeViewer(link, options = {}) {
-    const embedUrl = getYouTubeEmbedUrl(link.href);
+  function renderVideoViewer(link, options = {}) {
+    const embedUrl = getVideoEmbedUrl(link.href);
     if (!embedUrl) return "";
     const compactClass = options.compact ? " epr-youtube-viewer-compact" : "";
     return `
-      <section class="epr-youtube-viewer${compactClass}" aria-label="Video YouTube">
+      <section class="epr-video-viewer epr-youtube-viewer${compactClass}" aria-label="Video integree">
         <iframe
           src="${escapeHtml(embedUrl)}"
-          title="${escapeHtml(link.label || "Video YouTube")}"
+          title="${escapeHtml(link.label || "Video")}"
           loading="lazy"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowfullscreen>
@@ -2022,22 +2720,40 @@
     `;
   }
 
+  function renderYouTubeViewer(link, options = {}) {
+    return renderVideoViewer(link, options);
+  }
+
   function renderPdfViewer(link) {
     return `
       <section class="epr-pdf-viewer" aria-label="Apercu PDF">
         ${renderPdfFrame(link)}
-        <p><a href="${escapeHtml(link.href)}" target="_blank" rel="noreferrer">Ouvrir le PDF dans un nouvel onglet</a></p>
+        <p><a href="${escapeHtml(link.href)}" target="_blank" rel="noreferrer">${renderIcon("download")}<span>Ouvrir le PDF dans un nouvel onglet</span></a></p>
       </section>
     `;
   }
 
   function renderPdfFrame(link) {
-    const initialSrc = isPdfHref(link.href) ? withPdfViewerOptions(link.href) : "about:blank";
+    const initialSrc = isPdfHref(link.href)
+      ? withPdfViewerOptions(link.href)
+      : "about:blank";
     return `<iframe src="${escapeHtml(initialSrc)}" data-pdf-source="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}"></iframe>`;
   }
 
   function isYouTubeLink(link) {
     return Boolean(getYouTubeVideoId(link?.href));
+  }
+
+  function isVimeoLink(link) {
+    return Boolean(getVimeoVideoData(link?.href));
+  }
+
+  function isEmbeddedVideoLink(link) {
+    return isYouTubeLink(link) || isVimeoLink(link);
+  }
+
+  function getVideoEmbedUrl(href) {
+    return getYouTubeEmbedUrl(href) || getVimeoEmbedUrl(href);
   }
 
   function getYouTubeEmbedUrl(href) {
@@ -2055,11 +2771,22 @@
     try {
       const url = new URL(absolutizeUrl(href));
       const host = url.hostname.replace(/^www\./, "").toLowerCase();
-      if (host === "youtu.be") return normalizeYouTubeId(url.pathname.split("/").filter(Boolean)[0]);
-      if (!["youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"].includes(host)) return "";
-      if (url.pathname.startsWith("/watch")) return normalizeYouTubeId(url.searchParams.get("v"));
+      if (host === "youtu.be")
+        return normalizeYouTubeId(url.pathname.split("/").filter(Boolean)[0]);
+      if (
+        ![
+          "youtube.com",
+          "m.youtube.com",
+          "music.youtube.com",
+          "youtube-nocookie.com",
+        ].includes(host)
+      )
+        return "";
+      if (url.pathname.startsWith("/watch"))
+        return normalizeYouTubeId(url.searchParams.get("v"));
       const parts = url.pathname.split("/").filter(Boolean);
-      if (["embed", "shorts", "live", "v"].includes(parts[0])) return normalizeYouTubeId(parts[1]);
+      if (["embed", "shorts", "live", "v"].includes(parts[0]))
+        return normalizeYouTubeId(parts[1]);
       return "";
     } catch {
       return "";
@@ -2074,18 +2801,69 @@
   function getYouTubeStartSeconds(href) {
     try {
       const url = new URL(absolutizeUrl(href));
-      return parseYouTubeTime(url.searchParams.get("start") || url.searchParams.get("t") || "");
+      return parseYouTubeTime(
+        url.searchParams.get("start") || url.searchParams.get("t") || "",
+      );
     } catch {
       return 0;
     }
   }
 
   function parseYouTubeTime(value) {
-    const raw = String(value || "").trim().toLowerCase();
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase();
     if (/^\d+$/.test(raw)) return Number(raw);
     const match = raw.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
     if (!match) return 0;
-    return (Number(match[1] || 0) * 3600) + (Number(match[2] || 0) * 60) + Number(match[3] || 0);
+    return (
+      Number(match[1] || 0) * 3600 +
+      Number(match[2] || 0) * 60 +
+      Number(match[3] || 0)
+    );
+  }
+
+  function getVimeoEmbedUrl(href) {
+    const video = getVimeoVideoData(href);
+    if (!video) return "";
+    const url = new URL(`https://player.vimeo.com/video/${video.id}`);
+    if (video.hash) url.searchParams.set("h", video.hash);
+    url.searchParams.set("title", "0");
+    url.searchParams.set("byline", "0");
+    url.searchParams.set("portrait", "0");
+    return url.href;
+  }
+
+  function getVimeoVideoData(href) {
+    try {
+      const url = new URL(absolutizeUrl(href));
+      const host = url.hostname.replace(/^www\./, "").toLowerCase();
+      const parts = url.pathname.split("/").filter(Boolean);
+      let id = "";
+      let hash = url.searchParams.get("h") || "";
+
+      if (host === "player.vimeo.com" && parts[0] === "video") {
+        id = parts[1] || "";
+      } else if (["vimeo.com", "m.vimeo.com"].includes(host)) {
+        const index = parts.findIndex((part) => /^\d{6,14}$/.test(part));
+        if (index >= 0) {
+          id = parts[index];
+          hash =
+            hash ||
+            (/^[a-z0-9]+$/i.test(parts[index + 1] || "")
+              ? parts[index + 1]
+              : "");
+        }
+      }
+
+      if (!/^\d{6,14}$/.test(id)) return null;
+      return {
+        id,
+        hash: /^[a-z0-9]+$/i.test(hash) ? hash : "",
+      };
+    } catch {
+      return null;
+    }
   }
 
   function resolveModalPdfViewer(modal, link) {
@@ -2121,7 +2899,8 @@
       resolver.remove();
       const finalUrl = resolvedUrl || source;
       pdfResolverCache.set(source, finalUrl);
-      if (document.contains(visibleFrame)) setPdfFrameSource(visibleFrame, finalUrl);
+      if (document.contains(visibleFrame))
+        setPdfFrameSource(visibleFrame, finalUrl);
     };
 
     const tryResolve = () => {
@@ -2132,9 +2911,11 @@
 
     resolver.addEventListener("load", tryResolve);
     timer = setInterval(tryResolve, 250);
-    resolvePdfUrlFromFetch(source).then((resolvedUrl) => {
-      if (resolvedUrl) finish(resolvedUrl);
-    }).catch(() => {});
+    resolvePdfUrlFromFetch(source)
+      .then((resolvedUrl) => {
+        if (resolvedUrl) finish(resolvedUrl);
+      })
+      .catch(() => {});
   }
 
   function setPdfFrameSource(frame, href) {
@@ -2151,27 +2932,47 @@
     if (!doc) return "";
 
     const candidates = [
-      ...Array.from(doc.querySelectorAll("embed[src], iframe[src], object[data], a[href]")).map((node) => {
-        return node.getAttribute("src") || node.getAttribute("data") || node.getAttribute("href") || "";
+      ...Array.from(
+        doc.querySelectorAll("embed[src], iframe[src], object[data], a[href]"),
+      ).map((node) => {
+        return (
+          node.getAttribute("src") ||
+          node.getAttribute("data") ||
+          node.getAttribute("href") ||
+          ""
+        );
       }),
-      ...extractPdfUrlsFromText(doc.documentElement?.innerHTML || "")
-    ].map((href) => absolutizeUrl(href, originalUrl)).filter(Boolean);
+      ...extractPdfUrlsFromText(doc.documentElement?.innerHTML || ""),
+    ]
+      .map((href) => absolutizeUrl(href, originalUrl))
+      .filter(Boolean);
 
-    return candidates.find((href) => isPdfHref(href))
-      || candidates.find((href) => /\/pdf|pdf\/|\.pdf|blob:/i.test(href) && href !== originalUrl)
-      || "";
+    return (
+      candidates.find((href) => isPdfHref(href)) ||
+      candidates.find(
+        (href) => /\/pdf|pdf\/|\.pdf|blob:/i.test(href) && href !== originalUrl,
+      ) ||
+      ""
+    );
   }
 
   async function resolvePdfUrlFromFetch(source) {
     const response = await fetch(source, { credentials: "include" });
     if (!response.ok) return "";
     const text = await response.text();
-    return extractPdfUrlsFromText(text).map((href) => absolutizeUrl(href, source)).find(Boolean) || "";
+    return (
+      extractPdfUrlsFromText(text)
+        .map((href) => absolutizeUrl(href, source))
+        .find(Boolean) || ""
+    );
   }
 
   function extractPdfUrlsFromText(text) {
-    return Array.from(String(text).matchAll(/https?:\\?\/\\?\/[^"'<>\\\s]+?\.pdf(?:\?[^"'<>\\\s]*)?/gi))
-      .map((match) => match[0].replaceAll("\\/", "/"));
+    return Array.from(
+      String(text).matchAll(
+        /https?:\\?\/\\?\/[^"'<>\\\s]+?\.pdf(?:\?[^"'<>\\\s]*)?/gi,
+      ),
+    ).map((match) => match[0].replaceAll("\\/", "/"));
   }
 
   function absolutizeUrl(href, base = location.href) {
@@ -2184,6 +2985,10 @@
 
   function isPdfLink(link) {
     return Boolean(link?.isPdf) || isPdfHref(link?.href || "");
+  }
+
+  function isDownloadLink(link) {
+    return isPdfLink(link) || isDownloadHref(link?.href || "");
   }
 
   function isLikelyPdfPost(post) {
@@ -2200,9 +3005,36 @@
   function isPdfHref(href) {
     try {
       const url = new URL(href, location.href);
-      return /\.pdf$/i.test(url.pathname) || /(?:^|[?&])(type|format|filetype)=pdf(?:&|$)/i.test(url.search);
+      return (
+        /\.pdf$/i.test(url.pathname) ||
+        /(?:^|[?&])(type|format|filetype)=pdf(?:&|$)/i.test(url.search)
+      );
     } catch {
       return /\.pdf(?:$|[?#])/i.test(href);
+    }
+  }
+
+  function isDownloadHref(href) {
+    try {
+      const url = new URL(href, location.href);
+      return /\.(?:docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|txt|zip|rar|7z|png|jpe?g|gif|webp|heic|heif)$/i.test(
+        url.pathname,
+      );
+    } catch {
+      return /\.(?:docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|txt|zip|rar|7z|png|jpe?g|gif|webp|heic|heif)(?:$|[?#])/i.test(
+        String(href || ""),
+      );
+    }
+  }
+
+  function isImageHref(href) {
+    try {
+      const url = new URL(href, location.href);
+      return /\.(?:png|jpe?g|gif|webp|heic|heif)$/i.test(url.pathname);
+    } catch {
+      return /\.(?:png|jpe?g|gif|webp|heic|heif)(?:$|[?#])/i.test(
+        String(href || ""),
+      );
     }
   }
 
@@ -2221,8 +3053,13 @@
   function readableUrlLabel(href) {
     try {
       const url = new URL(href, location.href);
-      const lastPart = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || url.hostname);
-      return lastPart.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[-_]+/g, " ") || url.hostname;
+      const lastPart = decodeURIComponent(
+        url.pathname.split("/").filter(Boolean).pop() || url.hostname,
+      );
+      return (
+        lastPart.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[-_]+/g, " ") ||
+        url.hostname
+      );
     } catch {
       return href;
     }
@@ -2255,7 +3092,9 @@
   }
 
   function stripDuplicateTitle(text, title) {
-    return text.startsWith(title) ? text.slice(title.length).trim() || text : text;
+    return text.startsWith(title)
+      ? text.slice(title.length).trim() || text
+      : text;
   }
 
   function isPadletUiChrome(text) {
@@ -2265,7 +3104,7 @@
       "volet de discussion avec l'ia",
       "aller au contenu",
       "inscrivez-vous sur padlet",
-      "vous n'avez pas l'autorisation necessaire"
+      "vous n'avez pas l'autorisation necessaire",
     ].some((fragment) => normalized.includes(fragment));
   }
 
@@ -2279,32 +3118,66 @@
   }
 
   function hasMultiplePostDescendants(node) {
-    const descendants = [...node.querySelectorAll("article, [role='article'], [data-testid*='post' i], [data-test-id*='post' i], [class*='post' i]")]
-      .filter((child) => child !== node && child instanceof HTMLElement && !root.contains(child) && isVisible(child))
-      .map((child) => compactForCompare(child.innerText || child.textContent || ""))
+    const descendants = [
+      ...node.querySelectorAll(
+        "article, [role='article'], [data-testid*='post' i], [data-test-id*='post' i], [class*='post' i]",
+      ),
+    ]
+      .filter(
+        (child) =>
+          child !== node &&
+          child instanceof HTMLElement &&
+          !root.contains(child) &&
+          isVisible(child),
+      )
+      .map((child) =>
+        compactForCompare(child.innerText || child.textContent || ""),
+      )
       .filter((text) => text.length >= 24);
     if (descendants.length < 2) return false;
 
-    const uniqueDescendants = descendants.filter((text, index, arr) => arr.findIndex((other) => other === text || other.includes(text) || text.includes(other)) === index);
+    const uniqueDescendants = descendants.filter(
+      (text, index, arr) =>
+        arr.findIndex(
+          (other) =>
+            other === text || other.includes(text) || text.includes(other),
+        ) === index,
+    );
     return uniqueDescendants.length >= 2;
   }
 
   function hasDate(text) {
     const normalized = removeAccents(text.toLowerCase());
-    return /\b20\d{2}-\d{1,2}-\d{1,2}\b/.test(normalized) || /\b\d{1,2}[\/.-]\d{1,2}/.test(normalized) || /\b\d{1,2}(?:er)?\s+(janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/.test(normalized);
+    return (
+      /\b20\d{2}-\d{1,2}-\d{1,2}\b/.test(normalized) ||
+      /\b\d{1,2}[\/.-]\d{1,2}/.test(normalized) ||
+      /\b\d{1,2}(?:er)?\s+(janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/.test(
+        normalized,
+      )
+    );
   }
 
   function isDateOnlyLine(line) {
-    return /^\s*(?:20\d{2}-\d{1,2}-\d{1,2}|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\s*$/.test(removeAccents(line.toLowerCase()));
+    return /^\s*(?:20\d{2}-\d{1,2}-\d{1,2}|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\s*$/.test(
+      removeAccents(line.toLowerCase()),
+    );
   }
 
   function isVisible(node) {
     const style = getComputedStyle(node);
-    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0;
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number(style.opacity) !== 0
+    );
   }
 
   function cleanText(text) {
-    return text.replace(/\u00a0/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    return text
+      .replace(/\u00a0/g, " ")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
 
   function compactForCompare(text) {
@@ -2313,7 +3186,12 @@
 
   function normalizeSection(section) {
     const normalized = section.toUpperCase();
-    if (["TPS", "PS", "MS", "GS", "CP", "CE1", "CE2", "CM1", "CM2"].includes(normalized)) return normalized;
+    if (
+      ["TPS", "PS", "MS", "GS", "CP", "CE1", "CE2", "CM1", "CM2"].includes(
+        normalized,
+      )
+    )
+      return normalized;
     return section;
   }
 
@@ -2321,12 +3199,44 @@
     return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
 
+  function initializeConnectionDate() {
+    const lastConnectionDate = readStoredDate(CONNECTION_DATE_KEY);
+    const currentConnectionDate = readStoredDate(CURRENT_CONNECTION_DATE_KEY);
+
+    if (!currentConnectionDate) {
+      localStorage.setItem(CURRENT_CONNECTION_DATE_KEY, TODAY.toISOString());
+      return lastConnectionDate;
+    }
+
+    if (!sameDay(currentConnectionDate, TODAY)) {
+      localStorage.setItem(
+        CONNECTION_DATE_KEY,
+        currentConnectionDate.toISOString(),
+      );
+      localStorage.setItem(CURRENT_CONNECTION_DATE_KEY, TODAY.toISOString());
+      return currentConnectionDate;
+    }
+
+    return lastConnectionDate;
+  }
+
+  function readStoredDate(key) {
+    const stored = localStorage.getItem(key);
+    if (!stored) return null;
+    const date = new Date(stored);
+    return Number.isNaN(date.getTime()) ? null : startOfDay(date);
+  }
+
   function startOfDay(date) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   }
 
   function sameDay(a, b) {
-    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    );
   }
 
   function clamp(value, min, max) {
@@ -2369,8 +3279,13 @@
       return !posts.some((other) => {
         if (other === post) return false;
         const otherText = compactForCompare(other.text);
-        if (!otherText.includes(text) || otherText.length < text.length * 1.25) return false;
-        return hasRelatedTitle(post, other) || sameDateKey(post, other) || isLowInformationPost(post);
+        if (!otherText.includes(text) || otherText.length < text.length * 1.25)
+          return false;
+        return (
+          hasRelatedTitle(post, other) ||
+          sameDateKey(post, other) ||
+          isLowInformationPost(post)
+        );
       });
     });
   }
@@ -2378,7 +3293,10 @@
   function hasRelatedTitle(post, other) {
     const title = compactForCompare(post.title);
     const otherTitle = compactForCompare(other.title);
-    return title.length >= 8 && (otherTitle.includes(title) || title.includes(otherTitle));
+    return (
+      title.length >= 8 &&
+      (otherTitle.includes(title) || title.includes(otherTitle))
+    );
   }
 
   function sameDateKey(post, other) {
@@ -2387,13 +3305,16 @@
 
   function isLowInformationPost(post) {
     const text = compactForCompare(post.text);
-    return text.length < 220 || /\b(pdf|forms\.cloud\.microsoft|microsoft forms)\b/i.test(text);
+    return (
+      text.length < 220 ||
+      /\b(pdf|forms\.cloud\.microsoft|microsoft forms)\b/i.test(text)
+    );
   }
 
   function hash(value) {
     let result = 0;
     for (let index = 0; index < value.length; index += 1) {
-      result = Math.imul(31, result) + value.charCodeAt(index) | 0;
+      result = (Math.imul(31, result) + value.charCodeAt(index)) | 0;
     }
     return String(result);
   }
@@ -2403,13 +3324,17 @@
   }
 
   function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    }[char]));
+    return String(value).replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[char],
+    );
   }
 
   function escapeRegExp(value) {

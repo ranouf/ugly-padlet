@@ -1,0 +1,155 @@
+name: Deploy Chrome Extension
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        description: Validate Chrome Web Store credentials without uploading or publishing
+        required: true
+        default: true
+      publish_to_chrome_store:
+        type: boolean
+        description: Upload and publish to Chrome Web Store
+        required: true
+        default: false
+      create_github_release:
+        type: boolean
+        description: Create the GitHub release and attach the Chrome Store ZIP
+        required: true
+        default: false
+
+env:
+  NODE_VERSION: 24
+  HAS_CHROME_STORE_SECRETS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_PUBLISHER_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
+
+jobs:
+  build:
+    name: Build Chrome Store package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release note
+        run: pnpm release-note:check
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Read extension version
+        id: version
+        run: echo "version=$(node -p \"require('./manifest.json').version\")" >> $GITHUB_OUTPUT
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: uglypadlet-${{ steps.version.outputs.version }}-chrome-store-package
+          path: dist/uglypadlet-${{ steps.version.outputs.version }}-chrome-store.zip
+
+  chrome-store:
+    name: Chrome Web Store dry-run or publish
+    needs: build
+    if: github.event_name != 'pull_request' && env.HAS_CHROME_STORE_SECRETS == 'true' && (github.event_name == 'push' || inputs.dry_run || inputs.publish_to_chrome_store)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download package artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: uglypadlet-${{ needs.build.outputs.version }}-chrome-store-package
+          path: dist
+
+      - name: Validate Chrome Web Store credentials
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: node scripts/check-chrome-store-credentials.mjs
+
+      - name: Upload to Chrome Web Store
+        id: chrome_upload
+        if: github.event_name == 'push' || (inputs.publish_to_chrome_store && !inputs.dry_run)
+        run: |
+          token_response=$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d client_id="${{ secrets.CHROME_CLIENT_ID }}" \
+            -d client_secret="${{ secrets.CHROME_CLIENT_SECRET }}" \
+            -d refresh_token="${{ secrets.CHROME_REFRESH_TOKEN }}" \
+            -d grant_type=refresh_token)
+
+          access_token=$(node -e "const data = JSON.parse(process.argv[1]); if (!data.access_token) { console.error(JSON.stringify(data)); process.exit(1); } console.log(data.access_token);" "$token_response")
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $access_token" \
+            -H "x-goog-api-version: 2" \
+            -T "dist/uglypadlet-${{ needs.build.outputs.version }}-chrome-store.zip" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:upload"
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $access_token" \
+            -H "x-goog-api-version: 2" \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:publish"
+
+  github-release:
+    name: Create GitHub Release
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.create_github_release && !inputs.dry_run)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download package artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: uglypadlet-${{ needs.build.outputs.version }}-chrome-store-package
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: UglyPadlet v${{ needs.build.outputs.version }}
+          body_path: release-notes/v${{ needs.build.outputs.version }}.md
+          files: dist/uglypadlet-${{ needs.build.outputs.version }}-chrome-store.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

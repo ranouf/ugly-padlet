@@ -1,0 +1,220 @@
+name: PR Validation
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+  pull-requests: write
+
+on:
+  pull_request:
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  validate-extension:
+    name: Validate Chrome Extension
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+
+      - name: Run Prettier check
+        id: prettier
+        shell: bash
+        run: |
+          pnpm format:check || {
+            pnpm format
+            git diff --exit-code --ignore-cr-at-eol
+          }
+        continue-on-error: true
+
+      - name: Run ESLint
+        id: lint
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Run typecheck
+        id: typecheck
+        run: pnpm typecheck
+        continue-on-error: true
+
+      - name: Check release note
+        id: release_note
+        run: pnpm release-note:check
+        continue-on-error: true
+
+      - name: Run Jest with 90% coverage threshold
+        id: jest
+        run: pnpm test:jest
+        continue-on-error: true
+
+      - name: ReportGenerator
+        id: coverage_report
+        if: always()
+        continue-on-error: true
+        uses: im-open/code-coverage-report-generator@4
+        with:
+          reports: coverage/jest/cobertura-coverage.xml
+          targetdir: coverage-results
+          title: UglyPadlet code coverage
+          reporttypes: MarkdownSummary;
+
+      - name: Create a status check for code coverage results
+        id: code_coverage_check
+        if: always()
+        continue-on-error: true
+        uses: im-open/process-code-coverage-summary@v2.3.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          summary-file: coverage-results/Summary.md
+          report-name: UglyPadlet Code Coverage
+          check-name: code coverage
+          create-status-check: true
+          create-pr-comment: true
+          update-comment-if-one-exists: true
+          update-comment-key: uglypadlet
+          ignore-threshold-failures: false
+          line-threshold: 90
+          branch-threshold: 90
+
+      - name: Generate coverage summary
+        id: coverage
+        if: always()
+        run: pnpm coverage:summary
+        continue-on-error: true
+
+      - name: Run Playwright tests
+        id: playwright
+        run: pnpm test:playwright
+        continue-on-error: true
+
+      - name: Build Chrome extension package
+        id: build
+        run: pnpm build
+        continue-on-error: true
+
+      - name: Upload Playwright screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-validation-artifacts
+          path: |
+            test-results/
+            coverage/jest/
+            playwright-report/
+          if-no-files-found: ignore
+
+      - name: Upload Chrome extension package
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: uglypadlet-chrome-store-package
+          path: dist/*-chrome-store.zip
+          if-no-files-found: ignore
+
+      - name: Collect validation status
+        id: validation_status
+        if: always()
+        shell: bash
+        run: |
+          status () {
+            if [ "$1" = "success" ]; then echo "pass"; else echo "fail"; fi
+          }
+
+          prettier_status=$(status "${{ steps.prettier.outcome }}")
+          lint_status=$(status "${{ steps.lint.outcome }}")
+          typecheck_status=$(status "${{ steps.typecheck.outcome }}")
+          release_note_status=$(status "${{ steps.release_note.outcome }}")
+          jest_status=$(status "${{ steps.jest.outcome }}")
+          playwright_status=$(status "${{ steps.playwright.outcome }}")
+          build_status=$(status "${{ steps.build.outcome }}")
+
+          coverage_status="pass"
+          if [ "${{ steps.coverage.outcome }}" != "success" ] || [ "${{ steps.coverage_report.outcome }}" != "success" ] || [ "${{ steps.code_coverage_check.outcome }}" != "success" ] || [ "${{ steps.code_coverage_check.outputs.coverage-outcome }}" = "Failed" ]; then
+            coverage_status="fail"
+          fi
+
+          echo "prettier=$prettier_status" >> $GITHUB_OUTPUT
+          echo "lint=$lint_status" >> $GITHUB_OUTPUT
+          echo "typecheck=$typecheck_status" >> $GITHUB_OUTPUT
+          echo "release_note=$release_note_status" >> $GITHUB_OUTPUT
+          echo "jest=$jest_status" >> $GITHUB_OUTPUT
+          echo "coverage=$coverage_status" >> $GITHUB_OUTPUT
+          echo "playwright=$playwright_status" >> $GITHUB_OUTPUT
+          echo "build=$build_status" >> $GITHUB_OUTPUT
+
+          should_fail=false
+          if [ "$prettier_status" = "fail" ] || [ "$lint_status" = "fail" ] || [ "$typecheck_status" = "fail" ] || [ "$release_note_status" = "fail" ] || [ "$jest_status" = "fail" ] || [ "$coverage_status" = "fail" ] || [ "$playwright_status" = "fail" ] || [ "$build_status" = "fail" ]; then
+            should_fail=true
+          fi
+
+          echo "should_fail=$should_fail" >> $GITHUB_OUTPUT
+
+      - name: Find existing UglyPadlet validation comment
+        id: find_comment
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/find-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: uglypadlet-validation
+
+      - name: Create or update UglyPadlet validation summary
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.find_comment.outputs.comment-id }}
+          edit-mode: replace
+          body: |
+            <!-- uglypadlet-validation -->
+            ## UglyPadlet Validation
+
+            [![Prettier](https://img.shields.io/static/v1?label=Prettier&message=${{ steps.validation_status.outputs.prettier }}&color=${{ steps.validation_status.outputs.prettier == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Lint](https://img.shields.io/static/v1?label=Lint&message=${{ steps.validation_status.outputs.lint }}&color=${{ steps.validation_status.outputs.lint == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Typecheck](https://img.shields.io/static/v1?label=Typecheck&message=${{ steps.validation_status.outputs.typecheck }}&color=${{ steps.validation_status.outputs.typecheck == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Release Note](https://img.shields.io/static/v1?label=Release%20Note&message=${{ steps.validation_status.outputs.release_note }}&color=${{ steps.validation_status.outputs.release_note == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Jest 90%](https://img.shields.io/static/v1?label=Jest%2090%25&message=${{ steps.validation_status.outputs.jest }}&color=${{ steps.validation_status.outputs.jest == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Coverage](https://img.shields.io/static/v1?label=Coverage&message=${{ steps.validation_status.outputs.coverage }}&color=${{ steps.validation_status.outputs.coverage == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Playwright](https://img.shields.io/static/v1?label=Playwright&message=${{ steps.validation_status.outputs.playwright }}&color=${{ steps.validation_status.outputs.playwright == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Build](https://img.shields.io/static/v1?label=Build&message=${{ steps.validation_status.outputs.build }}&color=${{ steps.validation_status.outputs.build == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ${{ steps.coverage.outputs.summary }}
+
+            Artifacts:
+            - Playwright screenshots/report: `playwright-validation-artifacts`
+            - Chrome Store ZIP: `uglypadlet-chrome-store-package`
+
+            ---
+            [Voir le run complet](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      - name: Enforce validation gate
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.validation_status.outputs.should_fail }}" = "true" ]; then
+            echo "UglyPadlet validation failed."
+            exit 1
+          fi

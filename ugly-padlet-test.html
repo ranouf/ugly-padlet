@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Test UglyPadlet</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background-color: #d8e8ec;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%2388c5d4'/%3E%3Ccircle cx='180' cy='160' r='130' fill='%23f6d47b'/%3E%3Cpath d='M0 520 C180 460 320 610 520 540 S850 430 1200 520 L1200 800 L0 800 Z' fill='%237abf8a'/%3E%3Cpath d='M0 650 C220 590 380 710 610 650 S930 560 1200 640 L1200 800 L0 800 Z' fill='%234f9b71'/%3E%3C/svg%3E");
+        background-size: cover;
+        background-position: center;
+        font-family: Arial, sans-serif;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        gap: 18px;
+      }
+
+      article {
+        min-height: 120px;
+        border-radius: 18px;
+        padding: 14px;
+        background: white;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.14);
+      }
+    </style>
+  </head>
+  <body>
+    <p id="padlet-count">elanquoideneuf + 11 • 2 jours</p>
+    <main>
+      <article class="post">
+        <h2>GS - Sortie mediatheque</h2>
+        <p>La sortie des GS aura lieu le 3 juillet 2026. Merci de prevoir une gourde.</p>
+      </article>
+      <article class="post">
+        <h2>CP - Reunion parents</h2>
+        <p>Reunion des parents de CP le 12 septembre 2025 a 18h dans la salle polyvalente.</p>
+      </article>
+      <article class="post">
+        <h2>Cantine - Menu special</h2>
+        <p>Menu special le 28/06/2026 pour toutes les sections.</p>
+      </article>
+      <article class="post">
+        <h2>MS - Piscine</h2>
+        <p>Cycle piscine pour les MS du 9 juin au 20 juin 2026.</p>
+      </article>
+      <article class="post">
+        <h2>Garderie</h2>
+        <p>La garderie fermera exceptionnellement plus tot. Information sans date precise.</p>
+      </article>
+      <article class="post">
+        <p>2026-05-22</p>
+        <p>PDF</p>
+        <p>2026-05-22_Mot de la direction</p>
+      </article>
+      <article class="post">
+        <h2>Nouvelle rentree</h2>
+        <p>Rappel important pour la rentree du 15 aout 2026.</p>
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='500'%3E%3Crect width='900' height='500' fill='%23f7f5ef'/%3E%3Ctext x='450' y='270' font-size='56' text-anchor='middle' fill='%232f5f6f'%3EApercu PDF%3C/text%3E%3C/svg%3E" alt="">
+        <p><a href="documents/rentree-2026.pdf">Guide PDF de la rentree</a></p>
+        <p><a href="https://www.carnould.com/">Site exemple</a></p>
+      </article>
+      <article class="post">
+        <h2>PV 16 juin 2025 Fondation</h2>
+        <p>PDF</p>
+        <p><a href="/elanquoi/test/wish/YBI3Z2xXJdg8av16/">YBI3Z2xXJdg8av16</a></p>
+      </article>
+      <div class="post-column">
+      <article class="post">
+        <h2>Objets perdus</h2>
+        <p>Les objets perdus seront sur la scene demain. Pour commander des etiquettes, le lien est ici: https://colleamoi.com/fr_CA/collecte-de-fonds/supporter.</p>
+        <p><a href="https://youtu.be/BiUd53UqMis?si=9mvz71vwHYsNRj6g">Des parents dans l'école? Etes-vous sérieux?</a></p>
+      </article>
+      <article class="post">
+        <h2>Album photos</h2>
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600'%3E%3Crect width='900' height='600' fill='%232f5f6f'/%3E%3Ctext x='450' y='320' font-size='70' text-anchor='middle' fill='white'%3EPhoto 1%3C/text%3E%3C/svg%3E" alt="">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600'%3E%3Crect width='900' height='600' fill='%23ef4455'/%3E%3Ctext x='450' y='320' font-size='70' text-anchor='middle' fill='white'%3EPhoto 2%3C/text%3E%3C/svg%3E" alt="">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600'%3E%3Crect width='900' height='600' fill='%23f6d47b'/%3E%3Ctext x='450' y='320' font-size='70' text-anchor='middle' fill='black'%3EPhoto 3%3C/text%3E%3C/svg%3E" alt="">
+        <p>L'album photo est a la diapositive 1 sur 3.</p>
+      </article>
+      <article class="post">
+        <h2>Calendrier scolaire 2025-2026</h2>
+        <p>Modification importante pour le mardi 23 juin.</p>
+      </article>
+      </div>
+      <div class="post-modal" role="dialog" aria-modal="true">
+        <h2>Mot de la direction</h2>
+        <p>2026-02-27</p>
+        <p>Excellente semaine de relache a toutes les familles !</p>
+        <p>Appuyez sur Echap pour quitter cette fenetre</p>
+      </div>
+    </main>
+    <script>
+      (() => {
+        if (!new URLSearchParams(location.search).has("lazy")) return;
+
+        document.getElementById("padlet-count").textContent = "elanquoideneuf + 14 • 2 jours";
+        const main = document.querySelector("main");
+        const spacer = document.createElement("div");
+        spacer.style.cssText = "height: 2600px; grid-column: 1 / -1;";
+        main.appendChild(spacer);
+
+        const lazyPosts = [
+          ["Lazy - Derniere minute", "Communication ajoutee au scroll pour le 30 aout 2026."],
+          ["Lazy - Fournitures", "Liste des fournitures a verifier pour le 25 juillet 2026."],
+          ["Lazy - Reunion automne", "Rencontre d'automne prevue le 18 septembre 2025."]
+        ];
+        let loadedCount = 0;
+
+        function appendNextLazyPost() {
+          if (loadedCount >= lazyPosts.length) return;
+          const [title, text] = lazyPosts[loadedCount];
+          loadedCount += 1;
+
+          const article = document.createElement("article");
+          article.className = "post lazy-post";
+          article.innerHTML = `<h2>${title}</h2><p>${text}</p>`;
+          main.insertBefore(article, spacer);
+        }
+
+        window.addEventListener("scroll", appendNextLazyPost, { passive: true });
+        document.addEventListener("scroll", appendNextLazyPost, { passive: true, capture: true });
+      })();
+    </script>
+    <script src="vendor/hammer.min.js"></script>
+    <script src="content.js"></script>
+  </body>
+</html>

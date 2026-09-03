@@ -1,11 +1,10 @@
-.codex/
 node_modules/
-test-results/
-previews/
-documents/*
-!documents/rentree-2026.pdf
-elanquoi/
+.codex/
 dist/
 coverage/
 playwright-report/
+test-results/
+previews/
+elanquoi/
+vendor/
 tests/ugly-padlet.visual.spec.js-snapshots/
