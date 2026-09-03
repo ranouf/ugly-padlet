@@ -7,6 +7,22 @@ async function clearUglyPadletStorage(page) {
   await page.evaluate(() => localStorage.clear());
 }
 
+async function seedPreviousConnection(page, daysAgo = 6) {
+  await page.addInitScript((daysAgo) => {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    const storedDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+    ).toISOString();
+    localStorage.setItem(
+      "uglyPadlet:ecoleElan:currentConnectionDate:v1",
+      storedDate,
+    );
+  }, daysAgo);
+}
+
 async function openApp(page, url = pageUrl, expectedCount = 11) {
   await page.goto(url);
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
@@ -102,6 +118,47 @@ test.beforeEach(async ({ page }) => {
   await clearUglyPadletStorage(page);
 });
 
+test("visuel - pastille nouveau sur publication recente", async ({ page }) => {
+  await seedPreviousConnection(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.route("**/ugly-padlet-test.html?new=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Nouvelle publication de test</h2>
+          <p>mercredi 2 septembre 2026</p>
+          <p>Communication recente pour valider la pastille nouveau.</p>
+        </article>
+        </main>`,
+      ),
+    });
+  });
+  await openApp(page, `${pageUrl}?new=1`, 12);
+
+  const card = page.locator(".epr-card", {
+    hasText: "Nouvelle publication de test",
+  });
+  await expect(card.locator(".epr-new-badge")).toBeVisible();
+  await captureVisual(page, "new-post-badge.png");
+
+  await page.locator(".epr-single-select-toggle").click();
+  await expect(page.locator('[data-status-value="new"]')).toBeVisible();
+  await page.locator('[data-status-value="new"]').click();
+  await expect(page.locator(".epr-status-filter-label")).toHaveText(
+    "Nouvelles",
+  );
+  await expect(page.locator(".epr-card")).toHaveCount(1);
+  await expect(page.locator(".epr-summary")).toContainText(
+    "1/12 communications dont 1 nouvelle depuis la derniere connexion le",
+  );
+  await captureVisual(page, "new-post-filtered.png");
+});
+
 test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar", async ({
   page,
 }) => {
@@ -110,14 +167,12 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
 
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".epr-header")).toBeVisible();
-  await expect(page.locator(".epr-summary")).toContainText(
-    "14 communications affichees sur 14",
-  );
+  await expect(page.locator(".epr-summary")).toContainText("14 communications");
   await expect(page.locator(".epr-credits")).toBeVisible();
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.17");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.18");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
@@ -169,7 +224,7 @@ test("visuel - lecteur responsive laptop tablette et mobile sans debordement hor
     await openApp(page, pageUrl, 11);
     await expectNoHorizontalOverflow(page);
     await expect(page.locator(".epr-summary")).toContainText(
-      "11 communications affichees sur 11",
+      "11 communications",
     );
     await expect(page.locator(".epr-actions")).toBeVisible();
     await expect(page.locator(".epr-filters")).toBeVisible();

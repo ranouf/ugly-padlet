@@ -1,6 +1,6 @@
 {
   "name": "ugly-padlet",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "private": true,
   "description": "Tests locaux pour l'extension Chrome UglyPadlet.",
   "scripts": {
@@ -20,7 +20,8 @@
     "ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm release-note:check && pnpm test:jest && pnpm coverage:summary && pnpm test:playwright && pnpm build",
     "check:real-extension": "node tests/check-real-padlet-extension.js",
     "inspect:padlet-network": "node tests/inspect-padlet-network.js",
-    "test:visual:record": "playwright test tests/ugly-padlet.visual.spec.js"
+    "test:visual:record": "playwright test tests/ugly-padlet.visual.spec.js",
+    "chrome-store:dry-run": "node scripts/check-chrome-store-credentials.mjs --env-file=.codex/secretkeys.txt"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

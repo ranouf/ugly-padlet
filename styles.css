@@ -813,10 +813,29 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   font-weight: 850;
 }
 
+.epr-card-meta .epr-date-badge {
+  position: relative;
+}
+
 .epr-card-meta .epr-section-badge {
   border-color: var(--epr-section-border);
   background: var(--epr-section-bg);
   color: var(--epr-section-fg);
+}
+
+.epr-card-meta .epr-new-badge {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #d92d20;
+  box-shadow: 0 1px 5px rgba(115, 18, 28, 0.35);
+  pointer-events: none;
 }
 
 .epr-card h2,

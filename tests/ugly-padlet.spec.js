@@ -9,6 +9,22 @@ async function clearUglyPadletStorage(page) {
   await page.evaluate(() => localStorage.clear());
 }
 
+async function seedPreviousConnection(page, daysAgo = 6) {
+  await page.addInitScript((daysAgo) => {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    const storedDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+    ).toISOString();
+    localStorage.setItem(
+      "uglyPadlet:ecoleElan:currentConnectionDate:v1",
+      storedDate,
+    );
+  }, daysAgo);
+}
+
 async function openApp(page, url = pageUrl, expectedCount = 11) {
   await page.goto(url);
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
@@ -129,9 +145,7 @@ test("affiche le Padlet en liste verticale triee par date recente", async ({
 }) => {
   await openApp(page);
 
-  await expect(page.locator(".epr-summary")).toContainText(
-    "11 communications affichees sur 11",
-  );
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
   await expect(page.locator(".epr-summary")).not.toContainText(
     "Depuis le cache",
   );
@@ -161,9 +175,7 @@ test("charge au demarrage toutes les communications lazy-load existantes", async
 
   await expect(page.locator(".epr-card")).toHaveCount(14);
   await expect(page.locator(".epr-loader")).toBeHidden();
-  await expect(page.locator(".epr-summary")).toContainText(
-    "14 communications affichees sur 14",
-  );
+  await expect(page.locator(".epr-summary")).toContainText("14 communications");
   await expect(page.locator(".epr-card h2")).toContainText([
     "Lazy - Derniere minute",
     "Nouvelle rentree",
@@ -234,6 +246,9 @@ test("filtre par recherche, type, section et periode, puis conserve les filtres"
     "Calendrier scolaire 2025-2026",
     "MS - Piscine",
   ]);
+  await expect(page.locator(".epr-summary")).toContainText(
+    "3/11 communications",
+  );
 
   await page.reload();
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
@@ -279,9 +294,7 @@ test("reconstruit la liste apres reload sur zero resultat puis reset filtres", a
   await page.locator('[data-action="reset-filters"]').click();
   await expect(page.locator('[data-filter="query"]')).toHaveValue("");
   await expect(page.locator(".epr-empty")).toHaveCount(0);
-  await expect(page.locator(".epr-summary")).toContainText(
-    "11 communications affichees sur 11",
-  );
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
   await expect(page.locator(".epr-card")).toHaveCount(11);
 });
 
@@ -312,6 +325,109 @@ test("filtre plusieurs sections a la fois et conserve la selection", async ({
     "GS - Sortie mediatheque",
     "Cantine - Menu special",
   ]);
+});
+
+test("indique les publications nouvelles depuis la derniere connexion", async ({
+  page,
+}) => {
+  await seedPreviousConnection(page);
+  await openAppWithExtraPost(
+    page,
+    `
+    <article class="post">
+      <h2>Nouvelle publication de test</h2>
+      <p>mercredi 2 septembre 2026</p>
+      <p>Communication recente pour valider la pastille nouveau.</p>
+    </article>
+    <article class="post">
+      <h2>Ancienne publication de test</h2>
+      <p>lundi 15 juin 2026</p>
+      <p>Communication ancienne qui ne doit pas avoir de pastille.</p>
+    </article>
+  `,
+    13,
+  );
+
+  const storedConnectionDate = await page.evaluate(() =>
+    localStorage.getItem("uglyPadlet:ecoleElan:lastConnectionDate:v1"),
+  );
+  const expectedStoredDate = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 6);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      .toISOString()
+      .slice(0, 10);
+  });
+  expect(storedConnectionDate).toContain(expectedStoredDate);
+
+  const recentCard = page.locator(".epr-card", {
+    hasText: "Nouvelle publication de test",
+  });
+  await expect(recentCard.locator(".epr-new-badge")).toBeVisible();
+  await expect(recentCard.locator(".epr-new-badge")).toHaveAttribute(
+    "aria-label",
+    "Nouvelle publication",
+  );
+  await expect(page.locator(".epr-summary")).toContainText(
+    /13 communications dont 1 nouvelle depuis la derniere connexion le /,
+  );
+
+  const oldCard = page.locator(".epr-card", {
+    hasText: "Ancienne publication de test",
+  });
+  await expect(oldCard.locator(".epr-new-badge")).toHaveCount(0);
+  await expect(page.locator(".epr-new-badge")).toHaveCount(1);
+
+  await page.locator(".epr-single-select-toggle").click();
+  await expect(page.locator('[data-status-value="new"]')).toHaveText(
+    "Nouvelles",
+  );
+  await page.locator('[data-status-value="new"]').click();
+  await expect(page.locator(".epr-status-filter-label")).toHaveText(
+    "Nouvelles",
+  );
+  await expect(page.locator(".epr-card")).toHaveCount(1);
+  await expect(page.locator(".epr-card h2")).toHaveText(
+    "Nouvelle publication de test",
+  );
+  await expect(page.locator(".epr-summary")).toContainText(
+    "1/13 communications dont 1 nouvelle depuis la derniere connexion le",
+  );
+});
+
+test("conserve la derniere connexion apres un refresh le meme jour", async ({
+  page,
+}) => {
+  await openApp(page);
+  await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 6);
+    localStorage.setItem(
+      "uglyPadlet:ecoleElan:currentConnectionDate:v1",
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+      ).toISOString(),
+    );
+    localStorage.removeItem("uglyPadlet:ecoleElan:lastConnectionDate:v1");
+  });
+
+  await page.reload();
+  await expect(page.locator("#elan-padlet-reader")).toBeVisible();
+  const lastConnectionDate = await page.evaluate(() =>
+    localStorage.getItem("uglyPadlet:ecoleElan:lastConnectionDate:v1"),
+  );
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
+
+  await page.reload();
+  await expect(page.locator("#elan-padlet-reader")).toBeVisible();
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
+  await expect(
+    page.evaluate(() =>
+      localStorage.getItem("uglyPadlet:ecoleElan:lastConnectionDate:v1"),
+    ),
+  ).resolves.toBe(lastConnectionDate);
 });
 
 test("utilise la meme scrollbar a droite dans le fil, les dropdowns et les modals", async ({
@@ -398,7 +514,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.17");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.18");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page

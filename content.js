@@ -7,12 +7,16 @@
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_KEY = "uglyPadlet:ecoleElan:posts:v3";
   const FILTER_CACHE_KEY = "uglyPadlet:ecoleElan:filters:v1";
+  const CONNECTION_DATE_KEY = "uglyPadlet:ecoleElan:lastConnectionDate:v1";
+  const CURRENT_CONNECTION_DATE_KEY =
+    "uglyPadlet:ecoleElan:currentConnectionDate:v1";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.17");
+  const APP_VERSION = getExtensionVersion("2.0.18");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
     ["past", "Deja passees"],
+    ["new", "Nouvelles"],
   ];
   const TODAY = startOfDay(new Date());
   const MONTHS = new Map([
@@ -104,6 +108,7 @@
     ? location.pathname
     : new URL(`https://${activeTargetUrl}`).pathname;
   const USE_PADLET_WISH_URLS = !location.href.includes(TEST_PAGE);
+  const previousConnectionDate = initializeConnectionDate();
   const padletTitle = getPadletTitle();
 
   const state = {
@@ -136,6 +141,7 @@
     modalImageIndex: 0,
     modalSwipeManager: null,
     pendingModalRequest: readModalRequestFromUrl(),
+    previousConnectionDate,
   };
   const pdfResolverCache = new Map();
 
@@ -745,6 +751,7 @@
       dates: dates.length ? dates : fallbackDate ? [fallbackDate] : [],
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
+      publishedAt: fallbackDate,
       links,
       images,
     };
@@ -1056,6 +1063,7 @@
       date: post.date ? post.date.toISOString() : "",
       dates: post.dates.map((date) => date.toISOString()),
       dateKey: post.dateKey,
+      publishedAt: post.publishedAt ? post.publishedAt.toISOString() : "",
       links: post.links,
       images: post.images.filter((src) => !src.startsWith("data:")),
     };
@@ -1069,6 +1077,7 @@
           .filter((date) => !Number.isNaN(date.getTime()))
       : [];
     const date = post.date ? new Date(post.date) : null;
+    const publishedAt = post.publishedAt ? new Date(post.publishedAt) : null;
     return {
       id: post.id || hash(post.text),
       index: Number(post.index) || 0,
@@ -1079,6 +1088,10 @@
       dates,
       date: date && !Number.isNaN(date.getTime()) ? date : null,
       dateKey: post.dateKey || "",
+      publishedAt:
+        publishedAt && !Number.isNaN(publishedAt.getTime())
+          ? publishedAt
+          : null,
       links: Array.isArray(post.links)
         ? post.links.map(normalizeCachedLink).filter(Boolean)
         : [],
@@ -1199,7 +1212,7 @@
       const raw = localStorage.getItem(FILTER_CACHE_KEY);
       const filters = raw ? JSON.parse(raw) : {};
       state.query = typeof filters.query === "string" ? filters.query : "";
-      state.status = ["all", "upcoming", "past"].includes(filters.status)
+      state.status = STATUS_OPTIONS.some(([value]) => value === filters.status)
         ? filters.status
         : "all";
       state.sections = normalizeSelectedSections(
@@ -1394,7 +1407,7 @@
       return;
 
     state.visiblePosts = state.posts;
-    els.summary.textContent = `${state.posts.length} communication${state.posts.length > 1 ? "s" : ""} affichee${state.posts.length > 1 ? "s" : ""} sur ${state.posts.length}.`;
+    els.summary.textContent = renderSummary(state.posts, state.posts.length);
     els.list.innerHTML = state.posts.map(renderPost).join("");
     queueCustomScrollbarUpdate();
   }
@@ -1417,6 +1430,26 @@
       state.from,
       state.to,
     ].filter(Boolean).length;
+  }
+
+  function renderSummary(posts, total, source = "") {
+    const count = posts.length;
+    const label = hasActiveFilters()
+      ? `${count}/${total} communications`
+      : `${total} communication${total > 1 ? "s" : ""}`;
+    const newCount = posts.filter(isNewPost).length;
+    const newSuffix = newCount
+      ? ` dont ${newCount} nouvelle${newCount > 1 ? "s" : ""} depuis la derniere connexion le ${formatLastConnectionDate()}`
+      : "";
+    return `${label}${newSuffix}.${source}`;
+  }
+
+  function formatLastConnectionDate() {
+    return state.previousConnectionDate.toLocaleDateString("fr-CA", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
   }
 
   function toggleFilterPanel() {
@@ -1645,6 +1678,7 @@
       dates,
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
+      publishedAt: primaryDate,
       links,
       images,
     };
@@ -1863,7 +1897,11 @@
           : state.cacheLoaded
             ? " Depuis le cache."
             : "";
-      els.summary.textContent = `${filtered.length} communication${filtered.length > 1 ? "s" : ""} affichee${filtered.length > 1 ? "s" : ""} sur ${state.posts.length}.${source}`;
+      els.summary.textContent = renderSummary(
+        filtered,
+        state.posts.length,
+        source,
+      );
 
       if (state.isLoadingAll) {
         els.list.innerHTML = "";
@@ -2026,6 +2064,7 @@
       return false;
     if (state.status === "upcoming" && (!post.date || post.date < TODAY))
       return false;
+    if (state.status === "new" && !isNewPost(post)) return false;
     if (state.from && (!post.date || post.date < parseInputDate(state.from)))
       return false;
     if (state.to && (!post.date || post.date > parseInputDate(state.to)))
@@ -2061,7 +2100,7 @@
     return `
       <article class="epr-card" data-post-id="${escapeHtml(post.id)}" tabindex="0" role="button" aria-label="Ouvrir ${escapeHtml(post.title)}">
         <div class="epr-card-meta">
-          <span class="epr-date-badge">${escapeHtml(dateLabel)}</span>
+          <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(dateLabel)}</span>
           ${renderSectionBadge(post.section)}
         </div>
         <h2>${escapeHtml(post.title)}</h2>
@@ -2195,7 +2234,7 @@
         <header class="epr-modal-header">
           <div>
             <div class="epr-card-meta">
-              <span class="epr-date-badge">${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
+              <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
               ${renderSectionBadge(post.section)}
               <span class="epr-count-badge">${state.modalIndex + 1} / ${state.visiblePosts.length}</span>
             </div>
@@ -2212,7 +2251,7 @@
         <header class="epr-modal-header">
           <div>
             <div class="epr-card-meta">
-              <span class="epr-date-badge">${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
+              <span class="epr-date-badge">${renderNewBadge(post)}${escapeHtml(post.date ? post.date.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Date non detectee")}</span>
               ${renderSectionBadge(post.section)}
               <span class="epr-count-badge">${state.modalIndex + 1} / ${state.visiblePosts.length}</span>
             </div>
@@ -2455,6 +2494,19 @@
 
   function repairPadletTextSpacing(text) {
     return String(text || "").replace(/MEQ\.Un/g, "MEQ. Un");
+  }
+
+  function renderNewBadge(post) {
+    return isNewPost(post)
+      ? '<span class="epr-new-badge" aria-label="Nouvelle publication"></span>'
+      : "";
+  }
+
+  function isNewPost(post) {
+    if (!state.previousConnectionDate) return false;
+    const postDate = post.publishedAt || post.date;
+    if (!postDate) return false;
+    return startOfDay(postDate) >= startOfDay(state.previousConnectionDate);
   }
 
   function renderSectionBadge(section) {
@@ -3145,6 +3197,34 @@
 
   function removeAccents(value) {
     return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function initializeConnectionDate() {
+    const lastConnectionDate = readStoredDate(CONNECTION_DATE_KEY);
+    const currentConnectionDate = readStoredDate(CURRENT_CONNECTION_DATE_KEY);
+
+    if (!currentConnectionDate) {
+      localStorage.setItem(CURRENT_CONNECTION_DATE_KEY, TODAY.toISOString());
+      return lastConnectionDate;
+    }
+
+    if (!sameDay(currentConnectionDate, TODAY)) {
+      localStorage.setItem(
+        CONNECTION_DATE_KEY,
+        currentConnectionDate.toISOString(),
+      );
+      localStorage.setItem(CURRENT_CONNECTION_DATE_KEY, TODAY.toISOString());
+      return currentConnectionDate;
+    }
+
+    return lastConnectionDate;
+  }
+
+  function readStoredDate(key) {
+    const stored = localStorage.getItem(key);
+    if (!stored) return null;
+    const date = new Date(stored);
+    return Number.isNaN(date.getTime()) ? null : startOfDay(date);
   }
 
   function startOfDay(date) {
