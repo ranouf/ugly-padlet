@@ -3,6 +3,7 @@ name: PR Validation
 permissions:
   contents: read
   checks: write
+  issues: write
   pull-requests: write
 
 on:
@@ -68,6 +69,35 @@ jobs:
         run: pnpm test:jest
         continue-on-error: true
 
+      - name: ReportGenerator
+        id: coverage_report
+        if: always()
+        continue-on-error: true
+        uses: im-open/code-coverage-report-generator@4
+        with:
+          reports: coverage/jest/cobertura-coverage.xml
+          targetdir: coverage-results
+          title: UglyPadlet code coverage
+          reporttypes: MarkdownSummary;
+
+      - name: Create a status check for code coverage results
+        id: code_coverage_check
+        if: always()
+        continue-on-error: true
+        uses: im-open/process-code-coverage-summary@v2.3.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          summary-file: coverage-results/Summary.md
+          report-name: UglyPadlet Code Coverage
+          check-name: code coverage
+          create-status-check: true
+          create-pr-comment: true
+          update-comment-if-one-exists: true
+          update-comment-key: uglypadlet
+          ignore-threshold-failures: false
+          line-threshold: 90
+          branch-threshold: 90
+
       - name: Generate coverage summary
         id: coverage
         if: always()
@@ -121,17 +151,22 @@ jobs:
           playwright_status=$(status "${{ steps.playwright.outcome }}")
           build_status=$(status "${{ steps.build.outcome }}")
 
+          coverage_status="pass"
+          if [ "${{ steps.coverage.outcome }}" != "success" ] || [ "${{ steps.coverage_report.outcome }}" != "success" ] || [ "${{ steps.code_coverage_check.outcome }}" != "success" ] || [ "${{ steps.code_coverage_check.outputs.coverage-outcome }}" = "Failed" ]; then
+            coverage_status="fail"
+          fi
+
           echo "prettier=$prettier_status" >> $GITHUB_OUTPUT
           echo "lint=$lint_status" >> $GITHUB_OUTPUT
           echo "typecheck=$typecheck_status" >> $GITHUB_OUTPUT
           echo "release_note=$release_note_status" >> $GITHUB_OUTPUT
           echo "jest=$jest_status" >> $GITHUB_OUTPUT
-          echo "coverage=${{ steps.coverage.outcome == 'success' && 'pass' || 'fail' }}" >> $GITHUB_OUTPUT
+          echo "coverage=$coverage_status" >> $GITHUB_OUTPUT
           echo "playwright=$playwright_status" >> $GITHUB_OUTPUT
           echo "build=$build_status" >> $GITHUB_OUTPUT
 
           should_fail=false
-          if [ "$prettier_status" = "fail" ] || [ "$lint_status" = "fail" ] || [ "$typecheck_status" = "fail" ] || [ "$release_note_status" = "fail" ] || [ "$jest_status" = "fail" ] || [ "${{ steps.coverage.outcome }}" != "success" ] || [ "$playwright_status" = "fail" ] || [ "$build_status" = "fail" ]; then
+          if [ "$prettier_status" = "fail" ] || [ "$lint_status" = "fail" ] || [ "$typecheck_status" = "fail" ] || [ "$release_note_status" = "fail" ] || [ "$jest_status" = "fail" ] || [ "$coverage_status" = "fail" ] || [ "$playwright_status" = "fail" ] || [ "$build_status" = "fail" ]; then
             should_fail=true
           fi
 
