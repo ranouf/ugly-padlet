@@ -123,7 +123,6 @@ jobs:
             test-results/
             coverage/jest/
             playwright-report/
-            tests/ugly-padlet.visual.spec.js-snapshots/
           if-no-files-found: ignore
 
       - name: Upload Chrome extension package

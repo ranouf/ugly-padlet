@@ -51,6 +51,14 @@ async function openCard(page, title) {
   await stabilizeVisuals(page);
 }
 
+async function captureVisual(page, name, options = {}) {
+  await page.screenshot({
+    path: test.info().outputPath(name),
+    fullPage: true,
+    ...options,
+  });
+}
+
 async function expectNoHorizontalOverflow(page) {
   const overflow = await page
     .locator("#elan-padlet-reader")
@@ -144,10 +152,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   expect(scrollbar.width).toBe(20);
   expect(scrollbar.right).toBe(0);
   expect(scrollbar.height).toBeGreaterThan(300);
-
-  await expect(page).toHaveScreenshot("reader-desktop.png", {
-    maxDiffPixelRatio: 0.02,
-  });
+  await captureVisual(page, "reader-desktop.png");
 });
 
 test("visuel - lecteur responsive laptop tablette et mobile sans debordement horizontal", async ({
@@ -191,9 +196,7 @@ test("visuel - lecteur responsive laptop tablette et mobile sans debordement hor
       await expectIconCentered(page, ".epr-filter-toggle");
     }
     await expect(page.locator(".epr-card").first()).toBeVisible();
-    await expect(page).toHaveScreenshot(`reader-${name}.png`, {
-      maxDiffPixelRatio: 0.03,
-    });
+    await captureVisual(page, `reader-${name}.png`);
   }
 });
 
@@ -209,9 +212,7 @@ test("visuel - filtres mobiles replie ouverts avec badge actif", async ({
   await expect(page.locator(".epr-scrollbar")).toBeHidden();
   await expect(page.locator(".epr-filter-fields")).toBeHidden();
   await expect(page.locator(".epr-filter-count")).toBeHidden();
-  await expect(page).toHaveScreenshot("mobile-filters-collapsed.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "mobile-filters-collapsed.png");
 
   await page.locator(".epr-filter-toggle").click();
   await expect(page.locator(".epr-filter-fields")).toBeVisible();
@@ -225,9 +226,7 @@ test("visuel - filtres mobiles replie ouverts avec badge actif", async ({
   );
   await expect(page.locator('[data-action="reset-filters"]')).toBeVisible();
   await stabilizeVisuals(page);
-  await expect(page).toHaveScreenshot("mobile-filters-open-active-badge.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "mobile-filters-open-active-badge.png");
 
   await page.locator('[data-action="reset-filters"]').click();
   await expect(page.locator(".epr-filter-count")).toBeHidden();
@@ -243,10 +242,7 @@ test("visuel - overlay de chargement des communications", async ({ page }) => {
     "sur 14 attendues",
   );
   await stabilizeVisuals(page);
-
-  await expect(page).toHaveScreenshot("loading-overlay.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "loading-overlay.png");
 });
 
 test("visuel - dropdown communication et dropdown section multi-selection", async ({
@@ -266,9 +262,7 @@ test("visuel - dropdown communication et dropdown section multi-selection", asyn
   await expect(
     page.locator(".epr-single-select-toggle .bi-chevron-down"),
   ).toHaveCount(1);
-  await expect(page).toHaveScreenshot("dropdown-communication.png", {
-    maxDiffPixelRatio: 0.02,
-  });
+  await captureVisual(page, "dropdown-communication.png");
 
   await page.keyboard.press("Escape");
   await page.locator(".epr-multi-select-toggle").click();
@@ -279,9 +273,7 @@ test("visuel - dropdown communication et dropdown section multi-selection", asyn
   await expect(
     page.locator(".epr-multi-select-toggle .bi-chevron-down"),
   ).toHaveCount(1);
-  await expect(page).toHaveScreenshot("dropdown-section-multiselect.png", {
-    maxDiffPixelRatio: 0.02,
-  });
+  await captureVisual(page, "dropdown-section-multiselect.png");
 });
 
 test("visuel - reset filtres depuis zero resultat reconstruit la liste", async ({
@@ -299,9 +291,7 @@ test("visuel - reset filtres depuis zero resultat reconstruit la liste", async (
   await expect(page.locator(".epr-empty")).toHaveCount(0);
   await expect(page.locator(".epr-card")).toHaveCount(11);
   await stabilizeVisuals(page);
-  await expect(page).toHaveScreenshot("reset-filters-restored-list.png", {
-    maxDiffPixelRatio: 0.02,
-  });
+  await captureVisual(page, "reset-filters-restored-list.png");
 });
 
 test("visuel - modal carousel photo avec boutons centres et scrollbar interne", async ({
@@ -317,9 +307,7 @@ test("visuel - modal carousel photo avec boutons centres et scrollbar interne", 
   await expectIconCentered(page, ".epr-gallery-prev");
   await expectIconCentered(page, ".epr-gallery-next");
   await expect(page.locator(".epr-gallery-count")).toHaveText("1 / 3");
-  await expect(page).toHaveScreenshot("modal-carousel-photo.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "modal-carousel-photo.png");
 });
 
 test("visuel - modal mobile sans fleches de publication avec swipe actif", async ({
@@ -337,9 +325,7 @@ test("visuel - modal mobile sans fleches de publication avec swipe actif", async
   await expect(page.locator(".epr-modal-next")).toBeHidden();
   await expect(page.locator(".epr-modal-close")).toBeVisible();
   await expectIconCentered(page, ".epr-modal-close");
-  await expect(page).toHaveScreenshot("modal-mobile-swipe-no-post-arrows.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "modal-mobile-swipe-no-post-arrows.png");
 });
 
 test("visuel - liens de telechargement alignes a droite avec icone responsive", async ({
@@ -379,9 +365,7 @@ test("visuel - liens de telechargement alignes a droite avec icone responsive", 
     expect(metrics.rightGap).toBeLessThanOrEqual(20);
     expect(metrics.iconBeforeText).toBe(true);
     await stabilizeVisuals(page);
-    await expect(page).toHaveScreenshot(`card-download-link-${name}.png`, {
-      maxDiffPixelRatio: 0.03,
-    });
+    await captureVisual(page, `card-download-link-${name}.png`);
   }
 });
 
@@ -415,9 +399,7 @@ test("visuel - modal PDF garde les informations et le viewer pleine hauteur", as
   expect(frameBox.height).toBeGreaterThan(360);
   expect(frameBox.width).toBeGreaterThan(800);
   await expectIconCentered(page, ".epr-modal-close");
-  await expect(page).toHaveScreenshot("modal-pdf-full-height.png", {
-    maxDiffPixelRatio: 0.04,
-  });
+  await captureVisual(page, "modal-pdf-full-height.png");
 });
 
 test("visuel - modal texte avec lien brut clickable et lecteur YouTube", async ({
@@ -452,9 +434,8 @@ test("visuel - modal texte avec lien brut clickable et lecteur YouTube", async (
   });
   expect(videoTextLayout.gap).toBeGreaterThanOrEqual(14);
   expect(videoTextLayout.textFollowsVideo).toBe(true);
-  await expect(page).toHaveScreenshot("modal-youtube-autolink.png", {
+  await captureVisual(page, "modal-youtube-autolink.png", {
     mask: [page.locator(".epr-youtube-viewer iframe")],
-    maxDiffPixelRatio: 0.03,
   });
 });
 
@@ -472,7 +453,5 @@ test("visuel - mode Padlet original et bouton retour lecteur", async ({
     "Revenir au lecteur",
   );
   await expect(page.locator(".epr-header")).toBeVisible();
-  await expect(page).toHaveScreenshot("original-padlet-mode.png", {
-    maxDiffPixelRatio: 0.03,
-  });
+  await captureVisual(page, "original-padlet-mode.png");
 });

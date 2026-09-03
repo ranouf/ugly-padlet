@@ -13,14 +13,14 @@
     "test:playwright": "playwright test",
     "coverage:summary": "node scripts/write-coverage-summary.mjs",
     "test:visual": "playwright test tests/ugly-padlet.visual.spec.js",
-    "test:visual:update": "playwright test tests/ugly-padlet.visual.spec.js --update-snapshots",
     "test:headed": "playwright test --headed",
     "build": "node scripts/build-extension.mjs",
     "release-note:check": "node scripts/check-release-note.mjs",
     "github:protect-main": "node scripts/configure-main-protection.mjs",
     "ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm release-note:check && pnpm test:jest && pnpm coverage:summary && pnpm test:playwright && pnpm build",
     "check:real-extension": "node tests/check-real-padlet-extension.js",
-    "inspect:padlet-network": "node tests/inspect-padlet-network.js"
+    "inspect:padlet-network": "node tests/inspect-padlet-network.js",
+    "test:visual:record": "playwright test tests/ugly-padlet.visual.spec.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

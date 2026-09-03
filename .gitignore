@@ -8,3 +8,4 @@ elanquoi/
 dist/
 coverage/
 playwright-report/
+tests/ugly-padlet.visual.spec.js-snapshots/
