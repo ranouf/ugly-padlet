@@ -21,15 +21,36 @@ const rows = [
   ["Statement", coverage.total.statements.pct],
 ];
 
+const coverageTableRows = rows
+  .map(([label, actual]) => {
+    const status = actual >= threshold ? "PASSED" : "FAILED";
+    return [
+      "<tr>",
+      `<td>${label}</td>`,
+      `<td align="right">${threshold}%</td>`,
+      `<td align="right">${actual}%</td>`,
+      `<td>${status}</td>`,
+      "</tr>",
+    ].join("");
+  })
+  .join("\n");
+
 const markdown = [
   "## Code Coverage",
   "",
-  "| Coverage Type | Threshold | Actual Coverage | Status |",
-  "| --- | ---: | ---: | --- |",
-  ...rows.map(([label, actual]) => {
-    const status = actual >= threshold ? "PASSED" : "FAILED";
-    return `| ${label} | ${threshold}% | ${actual}% | ${status} |`;
-  }),
+  "<table>",
+  "<thead>",
+  "<tr>",
+  "<th>Coverage Type</th>",
+  '<th align="right">Threshold</th>',
+  '<th align="right">Actual Coverage</th>',
+  "<th>Status</th>",
+  "</tr>",
+  "</thead>",
+  "<tbody>",
+  coverageTableRows,
+  "</tbody>",
+  "</table>",
   "",
   "<details>",
   "<summary>Code Coverage Details</summary>",
