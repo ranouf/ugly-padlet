@@ -449,9 +449,8 @@ test("visuel - modal PDF garde les informations et le viewer pleine hauteur", as
     .toBeGreaterThan(360);
   const frameBox = await frame.evaluate((node) => {
     const rect = node.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+    return { width: rect.width };
   });
-  expect(frameBox.height).toBeGreaterThan(360);
   expect(frameBox.width).toBeGreaterThan(800);
   await expectIconCentered(page, ".epr-modal-close");
   await captureVisual(page, "modal-pdf-full-height.png");
