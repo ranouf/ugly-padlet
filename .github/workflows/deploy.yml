@@ -67,7 +67,9 @@ jobs:
 
       - name: Read extension version
         id: version
-        run: node -e "const fs = require('node:fs'); const version = require('./manifest.json').version; fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);"
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
