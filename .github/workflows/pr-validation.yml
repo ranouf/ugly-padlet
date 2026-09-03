@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           status () {
-            if [ "$1" = "success" ]; then echo "passed"; else echo "failed"; fi
+            if [ "$1" = "success" ]; then echo "pass"; else echo "fail"; fi
           }
 
           prettier_status=$(status "${{ steps.prettier.outcome }}")
@@ -126,7 +126,7 @@ jobs:
           echo "build=$build_status" >> $GITHUB_OUTPUT
 
           should_fail=false
-          if [ "$prettier_status" = "failed" ] || [ "$lint_status" = "failed" ] || [ "$typecheck_status" = "failed" ] || [ "$release_note_status" = "failed" ] || [ "$jest_status" = "failed" ] || [ "${{ steps.coverage.outcome }}" != "success" ] || [ "$playwright_status" = "failed" ] || [ "$build_status" = "failed" ]; then
+          if [ "$prettier_status" = "fail" ] || [ "$lint_status" = "fail" ] || [ "$typecheck_status" = "fail" ] || [ "$release_note_status" = "fail" ] || [ "$jest_status" = "fail" ] || [ "${{ steps.coverage.outcome }}" != "success" ] || [ "$playwright_status" = "fail" ] || [ "$build_status" = "fail" ]; then
             should_fail=true
           fi
 
@@ -153,14 +153,14 @@ jobs:
             <!-- uglypadlet-validation -->
             ## UglyPadlet Validation
 
-            [![Prettier](https://img.shields.io/badge/Prettier-${{ steps.validation_status.outputs.prettier }}-${{ steps.validation_status.outputs.prettier == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Lint](https://img.shields.io/badge/Lint-${{ steps.validation_status.outputs.lint }}-${{ steps.validation_status.outputs.lint == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Typecheck](https://img.shields.io/badge/Typecheck-${{ steps.validation_status.outputs.typecheck }}-${{ steps.validation_status.outputs.typecheck == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Release Note](https://img.shields.io/badge/Release%20Note-${{ steps.validation_status.outputs.release_note }}-${{ steps.validation_status.outputs.release_note == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Jest 90%](https://img.shields.io/badge/Jest%2090%25-${{ steps.validation_status.outputs.jest }}-${{ steps.validation_status.outputs.jest == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Coverage](https://img.shields.io/badge/Coverage-${{ steps.validation_status.outputs.coverage }}-${{ steps.validation_status.outputs.coverage == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Playwright](https://img.shields.io/badge/Playwright-${{ steps.validation_status.outputs.playwright }}-${{ steps.validation_status.outputs.playwright == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [![Build](https://img.shields.io/badge/Build-${{ steps.validation_status.outputs.build }}-${{ steps.validation_status.outputs.build == 'failed' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Prettier](https://img.shields.io/static/v1?label=Prettier&message=${{ steps.validation_status.outputs.prettier }}&color=${{ steps.validation_status.outputs.prettier == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Lint](https://img.shields.io/static/v1?label=Lint&message=${{ steps.validation_status.outputs.lint }}&color=${{ steps.validation_status.outputs.lint == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Typecheck](https://img.shields.io/static/v1?label=Typecheck&message=${{ steps.validation_status.outputs.typecheck }}&color=${{ steps.validation_status.outputs.typecheck == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Release Note](https://img.shields.io/static/v1?label=Release%20Note&message=${{ steps.validation_status.outputs.release_note }}&color=${{ steps.validation_status.outputs.release_note == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Jest 90%](https://img.shields.io/static/v1?label=Jest%2090%25&message=${{ steps.validation_status.outputs.jest }}&color=${{ steps.validation_status.outputs.jest == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Coverage](https://img.shields.io/static/v1?label=Coverage&message=${{ steps.validation_status.outputs.coverage }}&color=${{ steps.validation_status.outputs.coverage == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Playwright](https://img.shields.io/static/v1?label=Playwright&message=${{ steps.validation_status.outputs.playwright }}&color=${{ steps.validation_status.outputs.playwright == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [![Build](https://img.shields.io/static/v1?label=Build&message=${{ steps.validation_status.outputs.build }}&color=${{ steps.validation_status.outputs.build == 'fail' && 'red' || 'brightgreen' }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             ${{ steps.coverage.outputs.summary }}
 
