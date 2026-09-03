@@ -1,0 +1,39 @@
+{
+  "name": "ugly-padlet",
+  "version": "2.0.17",
+  "private": true,
+  "description": "Tests locaux pour l'extension Chrome UglyPadlet.",
+  "scripts": {
+    "format": "prettier --write \"*.{js,json,md}\" \".github/workflows/*.{yml,yaml}\" \"scripts/**/*.{js,mjs,cjs}\" \"tests/**/*.{js,json}\" \"release-notes/**/*.md\"",
+    "format:check": "prettier --check \"*.{js,json,md}\" \".github/workflows/*.{yml,yaml}\" \"scripts/**/*.{js,mjs,cjs}\" \"tests/**/*.{js,json}\" \"release-notes/**/*.md\"",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm test:jest && pnpm test:playwright",
+    "test:jest": "jest --coverage",
+    "test:playwright": "playwright test",
+    "coverage:summary": "node scripts/write-coverage-summary.mjs",
+    "test:visual": "playwright test tests/ugly-padlet.visual.spec.js",
+    "test:visual:update": "playwright test tests/ugly-padlet.visual.spec.js --update-snapshots",
+    "test:headed": "playwright test --headed",
+    "build": "node scripts/build-extension.mjs",
+    "release-note:check": "node scripts/check-release-note.mjs",
+    "github:protect-main": "node scripts/configure-main-protection.mjs",
+    "ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm release-note:check && pnpm test:jest && pnpm coverage:summary && pnpm test:playwright && pnpm build",
+    "check:real-extension": "node tests/check-real-padlet-extension.js",
+    "inspect:padlet-network": "node tests/inspect-padlet-network.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/chrome": "^0.2.8",
+    "@types/hammerjs": "^2.0.46",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.12.7",
+    "eslint": "^9.39.1",
+    "globals": "^17.12.0",
+    "jest": "^30.5.1",
+    "jest-junit": "^17.0.0",
+    "prettier": "^3.7.4",
+    "typescript": "~5.9.2",
+    "yazl": "^3.3.1"
+  }
+}

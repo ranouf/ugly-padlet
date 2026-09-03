@@ -2,10 +2,9 @@
 node_modules/
 test-results/
 previews/
-documents/
+documents/*
+!documents/rentree-2026.pdf
 elanquoi/
-tests/
-ugly-padlet-test.html
-package.json
-pnpm-lock.yaml
-playwright.config.js
+dist/
+coverage/
+playwright-report/

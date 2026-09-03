@@ -1,0 +1,93 @@
+name: Deploy Chrome Extension
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      publish_to_chrome_store:
+        type: boolean
+        description: Publish to Chrome Web Store when secrets are configured
+        required: true
+        default: true
+
+env:
+  NODE_VERSION: 24
+  HAS_CHROME_STORE_SECRETS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_PUBLISHER_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
+
+jobs:
+  build:
+    name: Build Chrome Store package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release note
+        run: pnpm release-note:check
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Read extension version
+        id: version
+        run: echo "version=$(node -p \"require('./manifest.json').version\")" >> $GITHUB_OUTPUT
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: uglypadlet-${{ steps.version.outputs.version }}-chrome-store-package
+          path: dist/uglypadlet-${{ steps.version.outputs.version }}-chrome-store.zip
+
+      - name: Upload to Chrome Web Store
+        id: chrome_upload
+        if: env.HAS_CHROME_STORE_SECRETS == 'true' && (github.event_name == 'push' || inputs.publish_to_chrome_store)
+        run: |
+          token_response=$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d client_id="${{ secrets.CHROME_CLIENT_ID }}" \
+            -d client_secret="${{ secrets.CHROME_CLIENT_SECRET }}" \
+            -d refresh_token="${{ secrets.CHROME_REFRESH_TOKEN }}" \
+            -d grant_type=refresh_token)
+
+          access_token=$(node -e "const data = JSON.parse(process.argv[1]); if (!data.access_token) { console.error(JSON.stringify(data)); process.exit(1); } console.log(data.access_token);" "$token_response")
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $access_token" \
+            -H "x-goog-api-version: 2" \
+            -T "dist/uglypadlet-${{ steps.version.outputs.version }}-chrome-store.zip" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:upload"
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $access_token" \
+            -H "x-goog-api-version: 2" \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:publish"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: UglyPadlet v${{ steps.version.outputs.version }}
+          body_path: release-notes/v${{ steps.version.outputs.version }}.md
+          files: dist/uglypadlet-${{ steps.version.outputs.version }}-chrome-store.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

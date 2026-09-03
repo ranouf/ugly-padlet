@@ -1,0 +1,10 @@
+node_modules/
+.codex/
+dist/
+coverage/
+playwright-report/
+test-results/
+previews/
+elanquoi/
+vendor/
+tests/ugly-padlet.visual.spec.js-snapshots/
