@@ -433,9 +433,10 @@ test("conserve la derniere connexion apres un refresh le meme jour", async ({
 test("utilise la meme scrollbar a droite dans le fil, les dropdowns et les modals", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.setViewportSize({ width: 1280, height: 520 });
   await openApp(page);
 
+  await expect(page.locator(".epr-scrollbar")).toBeVisible();
   const rootScrollbar = await page
     .locator(".epr-scrollbar")
     .evaluate((node) => {
@@ -487,7 +488,7 @@ test("utilise la meme scrollbar a droite dans le fil, les dropdowns et les modal
     const button = getComputedStyle(node, "::-webkit-scrollbar-button");
     const rect = node.getBoundingClientRect();
     return {
-      overflowY: style.overflowY,
+      overflowY: style.overflowY || style.overflow,
       scrollbarColor: style.scrollbarColor,
       scrollbarWidth: style.scrollbarWidth,
       webkitWidth: webkit.width,

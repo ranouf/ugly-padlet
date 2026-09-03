@@ -482,8 +482,10 @@ test("visuel - modal texte avec lien brut clickable et lecteur YouTube", async (
     const gap = [style.gap, style.rowGap, style.columnGap]
       .map(Number.parseFloat)
       .find(Number.isFinite);
+    const videoRect = video.getBoundingClientRect();
+    const textRect = text.getBoundingClientRect();
     return {
-      gap,
+      gap: gap ?? Math.round(textRect.top - videoRect.bottom),
       textFollowsVideo: video.nextElementSibling === text,
     };
   });

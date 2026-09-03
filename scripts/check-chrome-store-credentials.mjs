@@ -33,9 +33,9 @@ const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     "Content-Type": "application/x-www-form-urlencoded",
   },
   body: new URLSearchParams({
-    client_id: process.env.CHROME_CLIENT_ID,
-    client_secret: process.env.CHROME_CLIENT_SECRET,
-    refresh_token: process.env.CHROME_REFRESH_TOKEN,
+    client_id: process.env["CHROME_CLIENT_ID"],
+    client_secret: process.env["CHROME_CLIENT_SECRET"],
+    refresh_token: process.env["CHROME_REFRESH_TOKEN"],
     grant_type: "refresh_token",
   }),
 });
@@ -45,7 +45,7 @@ if (!tokenResponse.ok || !tokenData.access_token) {
   throw new Error(`OAuth token request failed: ${JSON.stringify(tokenData)}`);
 }
 
-const itemUrl = `https://chromewebstore.googleapis.com/v2/publishers/${process.env.CHROME_PUBLISHER_ID}/items/${process.env.CHROME_EXTENSION_ID}:fetchStatus`;
+const itemUrl = `https://chromewebstore.googleapis.com/v2/publishers/${process.env["CHROME_PUBLISHER_ID"]}/items/${process.env["CHROME_EXTENSION_ID"]}:fetchStatus`;
 const itemResponse = await fetch(itemUrl, {
   headers: {
     Authorization: `Bearer ${tokenData.access_token}`,
@@ -61,4 +61,4 @@ if (!itemResponse.ok) {
 }
 
 console.log("Chrome Web Store credentials are valid.");
-console.log(`Extension ID: ${process.env.CHROME_EXTENSION_ID}`);
+console.log(`Extension ID: ${process.env["CHROME_EXTENSION_ID"]}`);
