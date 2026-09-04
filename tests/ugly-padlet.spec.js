@@ -515,7 +515,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.19");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.20");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
@@ -633,6 +633,28 @@ test("laisse le Padlet original cliquable quand le lecteur est masque", async ({
     "data-original-post-clicked",
     "true",
   );
+});
+
+test("affiche l'action commentaire dans le modal seulement quand possible", async ({
+  page,
+}) => {
+  await openApp(page);
+  await openCard(page, "Nouvelle rentree");
+  await expect(page.locator(".epr-modal .epr-comment-link")).toHaveCount(0);
+
+  await page.locator(".epr-modal-close").click();
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const commentLink = page.locator(".epr-modal .epr-comment-link");
+  await expect(commentLink).toBeVisible();
+  await expect(commentLink).toHaveText("Commenter sur Padlet");
+  await expect(commentLink).toHaveAttribute("target", "_blank");
+  await expect(commentLink).toHaveAttribute("rel", /noopener noreferrer/);
+  await expect(commentLink).toHaveAttribute(
+    "href",
+    /\/elanquoi\/test\/wish\/YBI3Z2xXJdg8av16\/?$/,
+  );
+  await expect(commentLink.locator(".bi-chat-left-text")).toHaveCount(1);
 });
 
 test("affiche les liens YouTube dans un lecteur integre", async ({ page }) => {

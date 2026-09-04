@@ -1231,6 +1231,62 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   scrollbar-width: thin;
 }
 
+.epr-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px var(--epr-content-inset) 0;
+}
+
+.epr-comment-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(47, 95, 111, 0.35);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #22515c;
+  font-weight: 850;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(32, 33, 36, 0.08);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.epr-comment-link:hover {
+  border-color: rgba(47, 95, 111, 0.58);
+  background: #f1f8f7;
+  color: #193f49;
+  box-shadow: 0 12px 26px rgba(32, 33, 36, 0.16);
+  transform: translateY(-1px);
+}
+
+.epr-comment-link:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px #fff,
+    0 0 0 6px var(--epr-action-ring),
+    0 12px 26px rgba(32, 33, 36, 0.16);
+}
+
+.epr-comment-link:active {
+  background: #e7f2f0;
+  box-shadow: 0 8px 18px rgba(32, 33, 36, 0.12);
+  transform: translateY(0);
+}
+
+.epr-comment-link .epr-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
 .epr-modal-body p {
   margin: 0;
   line-height: 1.55;
@@ -1509,6 +1565,15 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 
   .epr-links a {
     max-width: min(82vw, 280px);
+  }
+
+  .epr-modal-actions {
+    padding: 12px 12px 0;
+  }
+
+  .epr-comment-link {
+    width: 100%;
+    min-height: 46px;
   }
 
   .epr-links a span:last-child {

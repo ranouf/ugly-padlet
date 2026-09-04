@@ -172,7 +172,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.19");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.20");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
@@ -381,6 +381,34 @@ test("visuel - modal mobile sans fleches de publication avec swipe actif", async
   await expect(page.locator(".epr-modal-close")).toBeVisible();
   await expectIconCentered(page, ".epr-modal-close");
   await captureVisual(page, "modal-mobile-swipe-no-post-arrows.png");
+});
+
+test("visuel - action commentaire responsive dans le modal mobile", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const commentLink = page.locator(".epr-modal .epr-comment-link");
+  await expect(commentLink).toBeVisible();
+  await expect(commentLink.locator(".bi-chat-left-text")).toHaveCount(1);
+  const metrics = await commentLink.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const modal = document
+      .querySelector(".epr-modal-panel")
+      .getBoundingClientRect();
+    return {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      left: Math.round(rect.left - modal.left),
+      right: Math.round(modal.right - rect.right),
+    };
+  });
+  expect(metrics.width).toBeGreaterThanOrEqual(300);
+  expect(metrics.height).toBeGreaterThanOrEqual(44);
+  expect(Math.abs(metrics.left - metrics.right)).toBeLessThanOrEqual(2);
+  await captureVisual(page, "modal-mobile-comment-action.png");
 });
 
 test("visuel - liens de telechargement alignes a droite avec icone responsive", async ({

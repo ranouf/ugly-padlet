@@ -2,7 +2,7 @@
   const APP_ID = "elan-padlet-reader";
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.19");
+  const APP_VERSION = getExtensionVersion("2.0.20");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -741,6 +741,7 @@
       text,
       section: sectionMap.get(sectionId) || "Non classee",
       urlSlug: normalizeWishSlug(attributes.hashid || ""),
+      commentUrl: normalizePadletCommentUrl(attributes.permalink || ""),
       dates: dates.length ? dates : fallbackDate ? [fallbackDate] : [],
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
@@ -1053,6 +1054,7 @@
       text: post.text,
       section: post.section,
       urlSlug: post.urlSlug || "",
+      commentUrl: post.commentUrl || "",
       date: post.date ? post.date.toISOString() : "",
       dates: post.dates.map((date) => date.toISOString()),
       dateKey: post.dateKey,
@@ -1078,6 +1080,7 @@
       text: post.text,
       section: post.section || "Non classee",
       urlSlug: post.urlSlug || "",
+      commentUrl: normalizePadletCommentUrl(post.commentUrl || ""),
       dates,
       date: date && !Number.isNaN(date.getTime()) ? date : null,
       dateKey: post.dateKey || "",
@@ -1696,6 +1699,7 @@
       text: fullText,
       section,
       urlSlug: findPadletWishSlug(node),
+      commentUrl: findPadletWishUrl(node),
       dates,
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
@@ -1763,6 +1767,13 @@
     return "";
   }
 
+  function findPadletWishUrl(node) {
+    const link = [...node.querySelectorAll("a[href]")]
+      .map((anchor) => anchor.href)
+      .find((href) => extractWishSlug(href));
+    return normalizePadletCommentUrl(link || "");
+  }
+
   function readModalRequestFromUrl() {
     const url = new URL(location.href);
     const slug = extractWishSlug(url.pathname);
@@ -1783,6 +1794,12 @@
     return String(value || "")
       .trim()
       .replace(/^post_/i, "");
+  }
+
+  function normalizePadletCommentUrl(value) {
+    const url = absolutizeUrl(value);
+    if (!url || !extractWishSlug(url)) return "";
+    return url;
   }
 
   function extractDates(text) {
@@ -2263,6 +2280,7 @@
           </div>
           <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
         </header>
+        ${renderModalActions(post)}
         ${renderPdfDescription(post)}
         ${renderPdfFrame(pdfLink)}
       </article>
@@ -2280,6 +2298,7 @@
           </div>
           <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
         </header>
+        ${renderModalActions(post)}
         <div class="epr-modal-body">
           ${renderPostBody(post)}
         </div>
@@ -2335,6 +2354,29 @@
     `;
   }
 
+  function renderModalActions(post) {
+    const commentUrl = getCommentUrl(post);
+    if (!commentUrl) return "";
+
+    return `
+      <div class="epr-modal-actions">
+        <a class="epr-comment-link" href="${escapeHtml(commentUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Commenter cette publication sur Padlet dans un nouvel onglet">
+          ${renderIcon("chat-left-text")}
+          <span>Commenter sur Padlet</span>
+        </a>
+      </div>
+    `;
+  }
+
+  function getCommentUrl(post) {
+    const explicitUrl = normalizePadletCommentUrl(post.commentUrl || "");
+    if (explicitUrl) return explicitUrl;
+    if (!USE_PADLET_WISH_URLS || !post.urlSlug) return "";
+    return normalizePadletCommentUrl(
+      `${location.origin}${BOARD_PATH.replace(/\/$/, "")}/wish/${encodeURIComponent(post.urlSlug)}`,
+    );
+  }
+
   function renderPdfDescription(post) {
     const body = renderFormattedText(
       getPostBodyText(post, { omitLinkLabels: true }),
@@ -2359,6 +2401,10 @@
       ],
       filter: [
         "M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z",
+      ],
+      "chat-left-text": [
+        "M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414a2 2 0 0 0-1.414.586l-1.293 1.293A1 1 0 0 1 0 12.172V2a1 1 0 0 1 1-1h13zM1 2v10.172l1.293-1.293A3 3 0 0 1 4.414 10H14V2H1z",
+        "M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z",
       ],
       download: [
         "M.5 9.9a.5.5 0 0 1 .5.5v2.5A1.1 1.1 0 0 0 2.1 14h11.8a1.1 1.1 0 0 0 1.1-1.1v-2.5a.5.5 0 0 1 1 0v2.5a2.1 2.1 0 0 1-2.1 2.1H2.1A2.1 2.1 0 0 1 0 12.9v-2.5a.5.5 0 0 1 .5-.5z",
