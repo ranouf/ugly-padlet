@@ -601,6 +601,40 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(externalLink.locator(".bi-download")).toHaveCount(0);
 });
 
+test("laisse le Padlet original cliquable quand le lecteur est masque", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openApp(page);
+  await page.evaluate(() => {
+    const originalPost = document.querySelector("main article");
+    originalPost.addEventListener("click", () => {
+      document.body.dataset.originalPostClicked = "true";
+    });
+  });
+
+  await page.locator('[data-action="toggle-original"]').click();
+  await expect(page.locator("#elan-padlet-reader")).toHaveClass(
+    /epr-minimized/,
+  );
+  await expect(page.locator(".epr-hit-surface")).toBeHidden();
+
+  const originalPostBox = await page
+    .locator("main article")
+    .first()
+    .boundingBox();
+  expect(originalPostBox).toBeTruthy();
+  await page.mouse.click(
+    originalPostBox.x + originalPostBox.width / 2,
+    originalPostBox.y + originalPostBox.height / 2,
+  );
+
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-original-post-clicked",
+    "true",
+  );
+});
+
 test("affiche les liens YouTube dans un lecteur integre", async ({ page }) => {
   await openApp(page);
 

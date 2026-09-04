@@ -194,6 +194,10 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   display: none;
 }
 
+#elan-padlet-reader.epr-minimized .epr-hit-surface {
+  display: none;
+}
+
 #elan-padlet-reader.epr-minimized .epr-shell > :not(.epr-header),
 #elan-padlet-reader.epr-minimized .epr-header > div:first-child {
   display: none;
