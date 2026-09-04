@@ -1,17 +1,8 @@
 (() => {
   const APP_ID = "elan-padlet-reader";
-  const TARGET_URLS = [
-    "padlet.com/elanquoideneuf/ecole-elan-2025-2026-gsult4hljk84tu3a",
-    "padlet.com/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a",
-  ];
   const TEST_PAGE = "ugly-padlet-test.html";
-  const CACHE_KEY = "uglyPadlet:ecoleElan:posts:v3";
-  const FILTER_CACHE_KEY = "uglyPadlet:ecoleElan:filters:v1";
-  const CONNECTION_DATE_KEY = "uglyPadlet:ecoleElan:lastConnectionDate:v1";
-  const CURRENT_CONNECTION_DATE_KEY =
-    "uglyPadlet:ecoleElan:currentConnectionDate:v1";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.18");
+  const APP_VERSION = getExtensionVersion("2.0.19");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -95,19 +86,21 @@
     "Rentrée 2026",
   ];
 
+  const isTestPage = location.href.includes(TEST_PAGE);
+  const testBoardPath = getTestBoardPath(isTestPage);
   if (
-    (!TARGET_URLS.some((targetUrl) => location.href.includes(targetUrl)) &&
-      !location.href.includes(TEST_PAGE)) ||
+    (!isSupportedPadletPage() && !isTestPage) ||
     document.getElementById(APP_ID)
   )
     return;
-  const activeTargetUrl =
-    TARGET_URLS.find((targetUrl) => location.href.includes(targetUrl)) ||
-    TARGET_URLS[0];
-  const BOARD_PATH = location.href.includes(TEST_PAGE)
-    ? location.pathname
-    : new URL(`https://${activeTargetUrl}`).pathname;
-  const USE_PADLET_WISH_URLS = !location.href.includes(TEST_PAGE);
+  const BOARD_PATH =
+    testBoardPath || (isTestPage ? location.pathname : getCurrentBoardPath());
+  const STORAGE_SCOPE = getBoardStorageScope(BOARD_PATH, isTestPage);
+  const CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:posts:v3`;
+  const FILTER_CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:filters:v1`;
+  const CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:lastConnectionDate:v1`;
+  const CURRENT_CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:currentConnectionDate:v1`;
+  const USE_PADLET_WISH_URLS = !isTestPage || Boolean(testBoardPath);
   const previousConnectionDate = initializeConnectionDate();
   const padletTitle = getPadletTitle();
 
@@ -1519,6 +1512,34 @@
     } catch (error) {
       return fallback;
     }
+  }
+
+  function isSupportedPadletPage() {
+    if (location.hostname !== "padlet.com") return false;
+    const segments = location.pathname.split("/").filter(Boolean);
+    if (segments.length < 2) return false;
+    return !["api", "auth", "dashboard"].includes(segments[0].toLowerCase());
+  }
+
+  function getCurrentBoardPath() {
+    const segments = location.pathname.split("/").filter(Boolean);
+    return `/${segments.slice(0, 2).join("/")}`;
+  }
+
+  function getTestBoardPath(isTestPage) {
+    if (!isTestPage) return "";
+    const boardPath = new URLSearchParams(location.search).get("boardPath");
+    if (!boardPath) return "";
+    const segments = boardPath.split("/").filter(Boolean);
+    return `/${segments.slice(0, 2).join("/")}`;
+  }
+
+  function getBoardStorageScope(boardPath, isTestPage) {
+    if (isTestPage) return "ecoleElan";
+    return boardPath
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toLowerCase();
   }
 
   function findOriginalBackground() {

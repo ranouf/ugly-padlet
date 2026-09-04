@@ -515,7 +515,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.18");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.19");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
@@ -887,6 +887,22 @@ test("rouvre le modal correspondant apres rafraichissement de l'URL profonde", a
   await page.locator(".epr-modal-close").click();
   await expect(page.locator(".epr-modal")).toHaveCount(0);
   await expect(page).not.toHaveURL(/uglyPost=/);
+});
+
+test("utilise le chemin du Padlet courant pour les liens profonds", async ({
+  page,
+}) => {
+  await openApp(
+    page,
+    `${pageUrl}?boardPath=${encodeURIComponent(
+      "/garnierc2/2026-2027-fypgw42ks7mvh08g",
+    )}`,
+  );
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  await expect(page).toHaveURL(
+    /\/garnierc2\/2026-2027-fypgw42ks7mvh08g\/wish\/YBI3Z2xXJdg8av16/,
+  );
 });
 
 test("affiche les PDF dans un viewer avec les informations de publication", async ({

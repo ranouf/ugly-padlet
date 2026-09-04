@@ -172,7 +172,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.18");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.19");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
