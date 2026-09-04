@@ -24,6 +24,7 @@ async function seedPreviousConnection(page, daysAgo = 6) {
 }
 
 async function openApp(page, url = pageUrl, expectedCount = 11) {
+  await mockPadletComments(page);
   await page.goto(url);
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
   if (Number.isFinite(expectedCount)) {
@@ -36,6 +37,34 @@ async function openApp(page, url = pageUrl, expectedCount = 11) {
     });
   }
   await stabilizeVisuals(page);
+}
+
+async function mockPadletComments(page) {
+  if (page.__uglyPadletCommentsMocked) return;
+  page.__uglyPadletCommentsMocked = true;
+
+  await page.route("https://padlet.com/api/9/comments**", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: JSON.stringify({
+        data: [
+          {
+            id: "comment_1",
+            attributes: {
+              id: 1,
+              html_body: "<p>Merci pour le partage.</p>",
+              author_name: "Parent test",
+              created_at: "2026-09-04T12:00:00.000Z",
+              can_edit: true,
+              can_delete: true,
+            },
+          },
+        ],
+        meta: { is_first_page: true, next: null },
+      }),
+    });
+  });
 }
 
 async function stabilizeVisuals(page) {
@@ -172,7 +201,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.20");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.26");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
@@ -383,17 +412,23 @@ test("visuel - modal mobile sans fleches de publication avec swipe actif", async
   await captureVisual(page, "modal-mobile-swipe-no-post-arrows.png");
 });
 
-test("visuel - action commentaire responsive dans le modal mobile", async ({
+test("visuel - panneau commentaires responsive dans le modal mobile", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openApp(page);
   await openCard(page, "PV 16 juin 2025 Fondation");
 
-  const commentLink = page.locator(".epr-modal .epr-comment-link");
-  await expect(commentLink).toBeVisible();
-  await expect(commentLink.locator(".bi-chat-left-text")).toHaveCount(1);
-  const metrics = await commentLink.evaluate((node) => {
+  const panel = page.locator(".epr-modal .epr-comments-panel");
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.locator(".epr-comments-header .bi-chat-left-text"),
+  ).toHaveCount(1);
+  await expect(panel.locator(".epr-comment")).toContainText(
+    "Merci pour le partage.",
+  );
+  await expect(panel.locator("textarea")).toBeVisible();
+  const metrics = await panel.evaluate((node) => {
     const rect = node.getBoundingClientRect();
     const modal = document
       .querySelector(".epr-modal-panel")
@@ -405,10 +440,45 @@ test("visuel - action commentaire responsive dans le modal mobile", async ({
       right: Math.round(modal.right - rect.right),
     };
   });
-  expect(metrics.width).toBeGreaterThanOrEqual(300);
-  expect(metrics.height).toBeGreaterThanOrEqual(44);
-  expect(Math.abs(metrics.left - metrics.right)).toBeLessThanOrEqual(2);
-  await captureVisual(page, "modal-mobile-comment-action.png");
+  expect(metrics.width).toBeGreaterThanOrEqual(360);
+  expect(metrics.height).toBeGreaterThanOrEqual(220);
+  expect(metrics.left).toBeGreaterThanOrEqual(0);
+  expect(metrics.right).toBeGreaterThanOrEqual(0);
+  await expectNoHorizontalOverflow(page);
+  await captureVisual(page, "modal-mobile-comments-panel.png", {
+    fullPage: false,
+  });
+});
+
+test("visuel - panneau commentaires en colonne droite desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1360, height: 820 });
+  await openApp(page);
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const panel = page.locator(".epr-modal .epr-comments-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".epr-comment")).toContainText(
+    "Merci pour le partage.",
+  );
+
+  const layout = await page.locator(".epr-modal-layout").evaluate((node) => {
+    const main = node.querySelector(".epr-modal-main").getBoundingClientRect();
+    const comments = node
+      .querySelector(".epr-comments-panel")
+      .getBoundingClientRect();
+    return {
+      mainRight: Math.round(main.right),
+      commentsLeft: Math.round(comments.left),
+      commentsWidth: Math.round(comments.width),
+    };
+  });
+  expect(layout.commentsLeft).toBeGreaterThanOrEqual(layout.mainRight);
+  expect(layout.commentsWidth).toBeGreaterThanOrEqual(300);
+  await captureVisual(page, "modal-desktop-comments-column.png", {
+    fullPage: false,
+  });
 });
 
 test("visuel - liens de telechargement alignes a droite avec icone responsive", async ({
@@ -437,7 +507,6 @@ test("visuel - liens de telechargement alignes a droite avec icone responsive", 
       const card = node.getBoundingClientRect();
       const links = node.querySelector(".epr-links").getBoundingClientRect();
       const anchor = node.querySelector(".epr-links a");
-      const link = anchor.getBoundingClientRect();
       return {
         rightGap: Math.round(card.right - links.right),
         iconBeforeText:
@@ -479,7 +548,7 @@ test("visuel - modal PDF garde les informations et le viewer pleine hauteur", as
     const rect = node.getBoundingClientRect();
     return { width: rect.width };
   });
-  expect(frameBox.width).toBeGreaterThan(800);
+  expect(frameBox.width).toBeGreaterThan(720);
   await expectIconCentered(page, ".epr-modal-close");
   await captureVisual(page, "modal-pdf-full-height.png");
 });

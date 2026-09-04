@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "UglyPadlet",
-  "version": "2.0.20",
+  "version": "2.0.26",
   "description": "Transforme les Padlets de l'ecole Elan en fils verticaux lisibles avec filtres.",
   "icons": {
     "16": "icons/icon-16.png",
