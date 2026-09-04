@@ -25,6 +25,14 @@ describe("Chrome extension package metadata", () => {
     expect(usesOnlyLocalScripts(manifest)).toBe(true);
   });
 
+  test("manifest runs on Padlet board pages", () => {
+    const manifest = readManifest(root);
+
+    expect(manifest.content_scripts[0].matches).toEqual([
+      "https://padlet.com/*/*",
+    ]);
+  });
+
   test("remote content scripts are rejected by metadata validation", () => {
     expect(
       usesOnlyLocalScripts({
