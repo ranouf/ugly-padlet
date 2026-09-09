@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "UglyPadlet",
-  "version": "2.0.18",
-  "description": "Transforme le Padlet de l'ecole Elan en fil vertical lisible avec filtres.",
+  "version": "2.0.26",
+  "description": "Transforme les Padlets de l'ecole Elan en fils verticaux lisibles avec filtres.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -11,10 +11,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://padlet.com/elanquoideneuf/ecole-elan-2025-2026-gsult4hljk84tu3a*",
-        "https://padlet.com/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a*"
-      ],
+      "matches": ["https://padlet.com/*/*"],
       "js": ["vendor/hammer.min.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_start"

@@ -25,10 +25,107 @@ async function seedPreviousConnection(page, daysAgo = 6) {
   }, daysAgo);
 }
 
+function commentsPayload({ includeEditable = true } = {}) {
+  const data = [
+    {
+      id: "comment_1",
+      attributes: {
+        id: 1,
+        html_body: "<p>Merci pour le partage.</p>",
+        author_name: "Parent test",
+        user_hashid: "user_parent_test",
+        created_at: "2026-09-04T12:00:00.000Z",
+      },
+    },
+  ];
+
+  if (includeEditable) {
+    data.push({
+      id: "comment_3",
+      attributes: {
+        id: 3,
+        html_body: "<p>Je peux modifier celui-ci.</p>",
+        author_name: "Moi",
+        created_at: "2026-09-04T12:30:00.000Z",
+        can_edit: true,
+        can_delete: true,
+      },
+    });
+  }
+
+  return { data, meta: { is_first_page: true, next: null } };
+}
+
 async function openApp(page, url = pageUrl, expectedCount = 11) {
+  await mockPadletComments(page);
   await page.goto(url);
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
   await expect(page.locator(".epr-card")).toHaveCount(expectedCount);
+}
+
+async function mockPadletComments(page) {
+  if (page.__uglyPadletCommentsMocked) return;
+  page.__uglyPadletCommentsMocked = true;
+
+  await page.route("https://padlet.com/api/9/comments**", (route) => {
+    const queuedPayloads = page.__uglyPadletCommentPayloads;
+    const payload = Array.isArray(queuedPayloads)
+      ? queuedPayloads.shift() || commentsPayload()
+      : commentsPayload();
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: JSON.stringify(payload),
+    });
+  });
+
+  await page.route("https://padlet.com/api/8/comments", (route) => {
+    const requestBody = route.request().postDataJSON();
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: JSON.stringify({
+        data: {
+          id: "comment_2",
+          attributes: {
+            id: 2,
+            html_body: requestBody.attributes.html_body,
+            author_name: "Moi",
+            created_at: "2026-09-04T13:00:00.000Z",
+          },
+        },
+      }),
+    });
+  });
+
+  await page.route("https://padlet.com/api/8/comments/3", (route) => {
+    const requestBody = route.request().postDataJSON();
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: JSON.stringify({
+        data: {
+          id: "comment_3",
+          attributes: {
+            id: 3,
+            html_body: requestBody.attributes.html_body,
+            author_name: "Moi",
+            created_at: "2026-09-04T12:30:00.000Z",
+            can_edit: true,
+            can_delete: true,
+          },
+        },
+      }),
+    });
+  });
+
+  await page.route("https://padlet.com/api/5/comments/3", (route) => {
+    route.fulfill({
+      status: 204,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: "",
+    });
+  });
 }
 
 async function openAppWithExtraPost(page, postHtml, expectedCount = 12) {
@@ -58,9 +155,9 @@ async function openCard(page, title) {
 }
 
 async function swipeModal(page, direction) {
-  await page.locator(".epr-modal-panel").evaluate((panel, direction) => {
-    const box = panel.getBoundingClientRect();
-    const y = box.top + box.height / 2;
+  await page.locator(".epr-modal").evaluate((modal, direction) => {
+    const box = modal.getBoundingClientRect();
+    const y = box.top + box.height * 0.82;
     const startX = box.left + box.width * (direction === "left" ? 0.82 : 0.18);
     const endX = box.left + box.width * (direction === "left" ? 0.18 : 0.82);
     const points = [
@@ -70,7 +167,7 @@ async function swipeModal(page, direction) {
       endX,
     ];
 
-    panel.dispatchEvent(
+    modal.dispatchEvent(
       new PointerEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
@@ -84,7 +181,7 @@ async function swipeModal(page, direction) {
     );
 
     for (const x of points.slice(1, -1)) {
-      panel.dispatchEvent(
+      modal.dispatchEvent(
         new PointerEvent("pointermove", {
           bubbles: true,
           cancelable: true,
@@ -98,7 +195,7 @@ async function swipeModal(page, direction) {
       );
     }
 
-    panel.dispatchEvent(
+    modal.dispatchEvent(
       new PointerEvent("pointerup", {
         bubbles: true,
         cancelable: true,
@@ -515,7 +612,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.18");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.26");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
@@ -599,6 +696,173 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(externalLink).toHaveText("Site exemple");
   await expect(externalLink.locator(".bi-box-arrow-up-right")).toHaveCount(1);
   await expect(externalLink.locator(".bi-download")).toHaveCount(0);
+});
+
+test("laisse le Padlet original cliquable quand le lecteur est masque", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openApp(page);
+  await page.evaluate(() => {
+    const originalPost = document.querySelector("main article");
+    originalPost.addEventListener("click", () => {
+      document.body.dataset.originalPostClicked = "true";
+    });
+  });
+
+  await page.locator('[data-action="toggle-original"]').click();
+  await expect(page.locator("#elan-padlet-reader")).toHaveClass(
+    /epr-minimized/,
+  );
+  await expect(page.locator(".epr-hit-surface")).toBeHidden();
+
+  const originalPostBox = await page
+    .locator("main article")
+    .first()
+    .boundingBox();
+  expect(originalPostBox).toBeTruthy();
+  await page.mouse.click(
+    originalPostBox.x + originalPostBox.width / 2,
+    originalPostBox.y + originalPostBox.height / 2,
+  );
+
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-original-post-clicked",
+    "true",
+  );
+});
+
+test("masque les commentaires quand le Padlet original les desactive", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.__uglyPadletStartingState = { wall: { is_commentable: false } };
+  });
+
+  await openApp(page);
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  await expect(page.locator("#elan-padlet-reader")).toHaveAttribute(
+    "data-wall-commentable",
+    "false",
+  );
+  await expect(page.locator(".epr-modal .epr-comments-panel")).toHaveCount(0);
+  await expect(page.locator(".epr-modal .epr-comment-link")).toHaveCount(0);
+});
+test("affiche les actions sur mon commentaire sans flag explicite", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.__uglyPadletStartingState = {
+      wall: { is_commentable: true },
+      user: { hashid: "user_parent_test" },
+      canIModerate: false,
+    };
+  });
+
+  await openApp(page);
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const myComment = page.locator(".epr-comment").filter({
+    hasText: "Merci pour le partage.",
+  });
+  await expect(myComment.locator("button")).toHaveText([
+    "Modifier",
+    "Supprimer",
+  ]);
+});
+test("affiche le panneau de commentaires dans le modal seulement quand possible", async ({
+  page,
+}) => {
+  await openApp(page);
+  await openCard(page, "Nouvelle rentree");
+  await expect(page.locator(".epr-modal .epr-comment-link")).toHaveCount(0);
+  await expect(page.locator(".epr-modal .epr-comments-panel")).toHaveCount(0);
+
+  await page.locator(".epr-modal-close").click();
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const panel = page.locator(".epr-modal .epr-comments-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".epr-comments-header")).toContainText(
+    "Commentaires",
+  );
+  await expect(panel.locator(".epr-comment").first()).toContainText(
+    "Merci pour le partage.",
+  );
+  await expect(panel.locator("textarea")).toBeVisible();
+  await expect(panel.locator(".epr-comment").first()).not.toContainText(
+    "Modifier",
+  );
+  await expect(panel.locator(".epr-comment").first()).not.toContainText(
+    "Supprimer",
+  );
+
+  const editableComment = panel.locator(".epr-comment").filter({
+    hasText: "Je peux modifier celui-ci.",
+  });
+  await expect(editableComment.locator("button")).toHaveText([
+    "Modifier",
+    "Supprimer",
+  ]);
+
+  await editableComment.locator("button", { hasText: "Modifier" }).click();
+  await panel
+    .locator(".epr-comment-edit-form textarea")
+    .fill("Commentaire modifie depuis le modal.");
+  const editRequestPromise = page.waitForRequest(
+    "https://padlet.com/api/8/comments/3",
+  );
+  await panel
+    .locator(".epr-comment-edit-form button", {
+      hasText: "Enregistrer",
+    })
+    .click();
+  const editRequest = await editRequestPromise;
+  expect(editRequest.postDataJSON()).toEqual({
+    attributes: {
+      html_body: "<p>Commentaire modifie depuis le modal.</p>",
+    },
+  });
+  await expect(
+    panel.locator(".epr-comment").filter({
+      hasText: "Commentaire modifie depuis le modal.",
+    }),
+  ).toBeVisible();
+
+  page.on("dialog", (dialog) => dialog.accept());
+  const deleteRequestPromise = page.waitForRequest(
+    "https://padlet.com/api/5/comments/3",
+  );
+  await panel
+    .locator(".epr-comment")
+    .filter({ hasText: "Commentaire modifie depuis le modal." })
+    .locator("button", { hasText: "Supprimer" })
+    .click();
+  await deleteRequestPromise;
+  await expect(
+    panel.locator(".epr-comment").filter({
+      hasText: "Commentaire modifie depuis le modal.",
+    }),
+  ).toHaveCount(0);
+
+  await panel.locator("textarea").fill("Nouveau commentaire depuis le modal.");
+  const requestPromise = page.waitForRequest(
+    "https://padlet.com/api/8/comments",
+  );
+  await panel.locator("button[type='submit']").click();
+  const request = await requestPromise;
+  expect(request.postDataJSON()).toEqual({
+    attributes: {
+      wish_id: 4032920406,
+      html_body: "<p>Nouveau commentaire depuis le modal.</p>",
+      attachment: null,
+    },
+  });
+  await expect(panel.locator(".epr-comment")).toHaveCount(2);
+  await expect(panel.locator(".epr-comment").last()).toContainText(
+    "Nouveau commentaire depuis le modal.",
+  );
 });
 
 test("affiche les liens YouTube dans un lecteur integre", async ({ page }) => {
@@ -820,6 +1084,22 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
   }
 });
 
+test("permet de selectionner le texte dans la modale desktop", async ({
+  page,
+}) => {
+  await openApp(page);
+  await openCard(page, "Nouvelle rentree");
+
+  const paragraph = page.locator(".epr-modal h2");
+  await expect(paragraph).toBeVisible();
+  await paragraph.selectText();
+
+  const selectedText = await page.evaluate(() =>
+    String(window.getSelection()?.toString() || "").trim(),
+  );
+  expect(selectedText.length).toBeGreaterThan(0);
+  expect(selectedText).toContain("Nouvelle rentree");
+});
 test("ouvre un modal, navigue au clavier et ferme avec echap", async ({
   page,
 }) => {
@@ -889,6 +1169,50 @@ test("rouvre le modal correspondant apres rafraichissement de l'URL profonde", a
   await expect(page).not.toHaveURL(/uglyPost=/);
 });
 
+test("utilise le chemin du Padlet courant pour les liens profonds", async ({
+  page,
+}) => {
+  await openApp(
+    page,
+    `${pageUrl}?boardPath=${encodeURIComponent(
+      "/garnierc2/2026-2027-fypgw42ks7mvh08g",
+    )}`,
+  );
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  await expect(page).toHaveURL(
+    /\/garnierc2\/2026-2027-fypgw42ks7mvh08g\/wish\/YBI3Z2xXJdg8av16/,
+  );
+});
+
+test("rafraichit les commentaires a chaque ouverture du modal", async ({
+  page,
+}) => {
+  page.__uglyPadletCommentPayloads = [
+    commentsPayload(),
+    commentsPayload({ includeEditable: false }),
+  ];
+
+  await openApp(page);
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  const panel = page.locator(".epr-modal .epr-comments-panel");
+  await expect(
+    panel.locator(".epr-comment").filter({
+      hasText: "Je peux modifier celui-ci.",
+    }),
+  ).toBeVisible();
+
+  await page.locator(".epr-modal-close").click();
+  await openCard(page, "PV 16 juin 2025 Fondation");
+
+  await expect(
+    panel.locator(".epr-comment").filter({
+      hasText: "Je peux modifier celui-ci.",
+    }),
+  ).toHaveCount(0);
+  await expect(panel.locator(".epr-comment")).toHaveCount(1);
+});
 test("affiche les PDF dans un viewer avec les informations de publication", async ({
   page,
 }) => {

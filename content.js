@@ -1,17 +1,8 @@
 (() => {
   const APP_ID = "elan-padlet-reader";
-  const TARGET_URLS = [
-    "padlet.com/elanquoideneuf/ecole-elan-2025-2026-gsult4hljk84tu3a",
-    "padlet.com/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a",
-  ];
   const TEST_PAGE = "ugly-padlet-test.html";
-  const CACHE_KEY = "uglyPadlet:ecoleElan:posts:v3";
-  const FILTER_CACHE_KEY = "uglyPadlet:ecoleElan:filters:v1";
-  const CONNECTION_DATE_KEY = "uglyPadlet:ecoleElan:lastConnectionDate:v1";
-  const CURRENT_CONNECTION_DATE_KEY =
-    "uglyPadlet:ecoleElan:currentConnectionDate:v1";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.18");
+  const APP_VERSION = getExtensionVersion("2.0.26");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -95,19 +86,21 @@
     "Rentrée 2026",
   ];
 
+  const isTestPage = location.href.includes(TEST_PAGE);
+  const testBoardPath = getTestBoardPath(isTestPage);
   if (
-    (!TARGET_URLS.some((targetUrl) => location.href.includes(targetUrl)) &&
-      !location.href.includes(TEST_PAGE)) ||
+    (!isSupportedPadletPage() && !isTestPage) ||
     document.getElementById(APP_ID)
   )
     return;
-  const activeTargetUrl =
-    TARGET_URLS.find((targetUrl) => location.href.includes(targetUrl)) ||
-    TARGET_URLS[0];
-  const BOARD_PATH = location.href.includes(TEST_PAGE)
-    ? location.pathname
-    : new URL(`https://${activeTargetUrl}`).pathname;
-  const USE_PADLET_WISH_URLS = !location.href.includes(TEST_PAGE);
+  const BOARD_PATH =
+    testBoardPath || (isTestPage ? location.pathname : getCurrentBoardPath());
+  const STORAGE_SCOPE = getBoardStorageScope(BOARD_PATH, isTestPage);
+  const CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:posts:v3`;
+  const FILTER_CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:filters:v1`;
+  const CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:lastConnectionDate:v1`;
+  const CURRENT_CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:currentConnectionDate:v1`;
+  const USE_PADLET_WISH_URLS = !isTestPage || Boolean(testBoardPath);
   const previousConnectionDate = initializeConnectionDate();
   const padletTitle = getPadletTitle();
 
@@ -140,6 +133,21 @@
     modalIndex: -1,
     modalImageIndex: 0,
     modalSwipeManager: null,
+    isWallCommentable:
+      window.__uglyPadletStartingState?.wall?.is_commentable !== false,
+    currentUserHashid: cleanText(
+      window.__uglyPadletStartingState?.user?.hashid || "",
+    ),
+    canModerateComments: Boolean(
+      window.__uglyPadletStartingState?.canIModerate,
+    ),
+    modalCommentsRefreshKey: "",
+    commentsByPost: new Map(),
+    commentsLoadingByPost: new Set(),
+    commentsSubmittingByPost: new Set(),
+    commentsEditingById: new Set(),
+    commentsDeletingById: new Set(),
+    commentErrorsByPost: new Map(),
     pendingModalRequest: readModalRequestFromUrl(),
     previousConnectionDate,
   };
@@ -147,6 +155,7 @@
 
   const root = document.createElement("div");
   root.id = APP_ID;
+  root.dataset.wallCommentable = String(state.isWallCommentable);
   applyOriginalBackground(root);
   root.innerHTML = `
     <div class="epr-hit-surface" aria-hidden="true"></div>
@@ -292,6 +301,16 @@
 
     root.addEventListener("input", handleFilterChange);
     root.addEventListener("change", handleFilterChange);
+    root.addEventListener("submit", (event) => {
+      if (event.target.matches(".epr-comment-edit-form")) {
+        event.preventDefault();
+        submitEditComment(event.target);
+        return;
+      }
+      if (!event.target.matches(".epr-comment-form")) return;
+      event.preventDefault();
+      submitModalComment(event.target);
+    });
     root.addEventListener("click", (event) => {
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (!event.target.closest("[data-section-filter]")) closeSectionMenu();
@@ -318,6 +337,18 @@
       if (action === "next-post") showAdjacentPost(1);
       if (action === "previous-image") showAdjacentImage(-1);
       if (action === "next-image") showAdjacentImage(1);
+      if (action === "edit-comment")
+        startEditComment(
+          event.target.closest("[data-comment-id]")?.dataset.commentId || "",
+        );
+      if (action === "cancel-edit-comment")
+        cancelEditComment(
+          event.target.closest("[data-comment-id]")?.dataset.commentId || "",
+        );
+      if (action === "delete-comment")
+        deleteModalComment(
+          event.target.closest("[data-comment-id]")?.dataset.commentId || "",
+        );
 
       const card = event.target.closest(".epr-card[data-post-id]");
       if (card && !event.target.closest("a, button")) {
@@ -619,6 +650,8 @@
       return false;
     }
 
+    await loadPadletStartingState();
+
     try {
       const wishes = [];
       let pageStart = "";
@@ -680,6 +713,43 @@
     }
   }
 
+  async function loadPadletStartingState() {
+    const startingState = await fetchPadletStartingState();
+    state.isWallCommentable = startingState?.wall?.is_commentable !== false;
+    state.currentUserHashid = cleanText(startingState?.user?.hashid || "");
+    state.canModerateComments = Boolean(startingState?.canIModerate);
+    root.dataset.wallCommentable = String(state.isWallCommentable);
+  }
+
+  async function fetchPadletStartingState() {
+    if (window.__uglyPadletStartingState)
+      return window.__uglyPadletStartingState;
+
+    const startingStateUrl = await waitForPadletStartingStateUrl();
+    if (!startingStateUrl) return null;
+
+    try {
+      const response = await fetch(startingStateUrl, {
+        credentials: "include",
+      });
+      if (!response.ok) return null;
+      return response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function waitForPadletStartingStateUrl() {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const url = performance
+        .getEntriesByType("resource")
+        .map((entry) => entry.name)
+        .find((entry) => entry.includes("/api/11/padlet_starting_state"));
+      if (url) return url;
+      await wait(250);
+    }
+    return "";
+  }
   async function fetchPadletSectionMap(wallId) {
     const sectionMap = new Map();
     if (!wallId) return sectionMap;
@@ -748,6 +818,9 @@
       text,
       section: sectionMap.get(sectionId) || "Non classee",
       urlSlug: normalizeWishSlug(attributes.hashid || ""),
+      commentUrl: normalizePadletCommentUrl(attributes.permalink || ""),
+      commentPostId: Number(attributes.id || wish.id) || null,
+      commentWishHashid: String(attributes.hashid || ""),
       dates: dates.length ? dates : fallbackDate ? [fallbackDate] : [],
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
@@ -1060,6 +1133,9 @@
       text: post.text,
       section: post.section,
       urlSlug: post.urlSlug || "",
+      commentUrl: post.commentUrl || "",
+      commentPostId: post.commentPostId || null,
+      commentWishHashid: post.commentWishHashid || "",
       date: post.date ? post.date.toISOString() : "",
       dates: post.dates.map((date) => date.toISOString()),
       dateKey: post.dateKey,
@@ -1085,6 +1161,9 @@
       text: post.text,
       section: post.section || "Non classee",
       urlSlug: post.urlSlug || "",
+      commentUrl: normalizePadletCommentUrl(post.commentUrl || ""),
+      commentPostId: Number(post.commentPostId) || null,
+      commentWishHashid: String(post.commentWishHashid || ""),
       dates,
       date: date && !Number.isNaN(date.getTime()) ? date : null,
       dateKey: post.dateKey || "",
@@ -1521,6 +1600,34 @@
     }
   }
 
+  function isSupportedPadletPage() {
+    if (location.hostname !== "padlet.com") return false;
+    const segments = location.pathname.split("/").filter(Boolean);
+    if (segments.length < 2) return false;
+    return !["api", "auth", "dashboard"].includes(segments[0].toLowerCase());
+  }
+
+  function getCurrentBoardPath() {
+    const segments = location.pathname.split("/").filter(Boolean);
+    return `/${segments.slice(0, 2).join("/")}`;
+  }
+
+  function getTestBoardPath(isTestPage) {
+    if (!isTestPage) return "";
+    const boardPath = new URLSearchParams(location.search).get("boardPath");
+    if (!boardPath) return "";
+    const segments = boardPath.split("/").filter(Boolean);
+    return `/${segments.slice(0, 2).join("/")}`;
+  }
+
+  function getBoardStorageScope(boardPath, isTestPage) {
+    if (isTestPage) return "ecoleElan";
+    return boardPath
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toLowerCase();
+  }
+
   function findOriginalBackground() {
     const selectors = [
       "body",
@@ -1675,6 +1782,12 @@
       text: fullText,
       section,
       urlSlug: findPadletWishSlug(node),
+      commentUrl: findPadletWishUrl(node),
+      commentPostId:
+        Number(node.getAttribute("data-padlet-post-id")) ||
+        Number(node.getAttribute("data-post-id")) ||
+        null,
+      commentWishHashid: getCommentWishHashidFromSlug(findPadletWishSlug(node)),
       dates,
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
@@ -1742,6 +1855,13 @@
     return "";
   }
 
+  function findPadletWishUrl(node) {
+    const link = [...node.querySelectorAll("a[href]")]
+      .map((anchor) => anchor.href)
+      .find((href) => extractWishSlug(href));
+    return normalizePadletCommentUrl(link || "");
+  }
+
   function readModalRequestFromUrl() {
     const url = new URL(location.href);
     const slug = extractWishSlug(url.pathname);
@@ -1762,6 +1882,12 @@
     return String(value || "")
       .trim()
       .replace(/^post_/i, "");
+  }
+
+  function normalizePadletCommentUrl(value) {
+    const url = absolutizeUrl(value);
+    if (!url || !extractWishSlug(url)) return "";
+    return url;
   }
 
   function extractDates(text) {
@@ -2125,6 +2251,7 @@
     state.modalIndex = -1;
     state.modalImageIndex = 0;
     state.pendingModalRequest = null;
+    state.modalCommentsRefreshKey = "";
     destroyModalSwipe();
     root.querySelector(".epr-modal")?.remove();
     if (updateUrl) updateUrlForBoard();
@@ -2228,6 +2355,12 @@
     modal.setAttribute("role", "dialog");
     modal.setAttribute("aria-modal", "true");
     modal.setAttribute("aria-label", post.title);
+    const commentsKey = canUseCommentPanel(post) ? getCommentKey(post) : "";
+    const shouldRefreshComments = Boolean(
+      commentsKey && state.modalCommentsRefreshKey !== commentsKey,
+    );
+    if (shouldRefreshComments) state.modalCommentsRefreshKey = commentsKey;
+    const commentsPanel = renderCommentsPanel(post);
     const panel = pdfLink
       ? `
       <article class="epr-modal-panel epr-modal-panel-pdf">
@@ -2242,8 +2375,14 @@
           </div>
           <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
         </header>
-        ${renderPdfDescription(post)}
-        ${renderPdfFrame(pdfLink)}
+        <div class="epr-modal-layout${commentsPanel ? " epr-modal-layout-comments" : ""}">
+          <div class="epr-modal-main">
+            ${renderModalActions(post)}
+            ${renderPdfDescription(post)}
+            ${renderPdfFrame(pdfLink)}
+          </div>
+          ${commentsPanel}
+        </div>
       </article>
     `
       : `
@@ -2259,8 +2398,14 @@
           </div>
           <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
         </header>
-        <div class="epr-modal-body">
-          ${renderPostBody(post)}
+        <div class="epr-modal-layout${commentsPanel ? " epr-modal-layout-comments" : ""}">
+          <div class="epr-modal-main">
+            ${renderModalActions(post)}
+            <div class="epr-modal-body">
+              ${renderPostBody(post)}
+            </div>
+          </div>
+          ${commentsPanel}
         </div>
       </article>
     `;
@@ -2272,13 +2417,15 @@
     `;
     root.appendChild(modal);
     if (pdfLink) resolveModalPdfViewer(modal, pdfLink);
+    loadCommentsForVisiblePost({ force: shouldRefreshComments });
     enableModalSwipe(modal);
     modal.querySelector(".epr-modal-close")?.focus();
   }
 
   function enableModalSwipe(modal) {
-    const panel = modal.querySelector(".epr-modal-panel");
-    const manager = new Hammer.Manager(panel);
+    if (!shouldEnableModalSwipe()) return;
+
+    const manager = new Hammer.Manager(modal);
     manager.add(
       new Hammer.Swipe({
         direction: Hammer.DIRECTION_HORIZONTAL,
@@ -2292,6 +2439,9 @@
     state.modalSwipeManager = manager;
   }
 
+  function shouldEnableModalSwipe() {
+    return window.matchMedia("(max-width: 640px)").matches;
+  }
   function destroyModalSwipe() {
     state.modalSwipeManager?.destroy();
     state.modalSwipeManager = null;
@@ -2312,6 +2462,430 @@
       ${body ? `<p class="epr-post-text">${body}</p>` : ""}
       ${links ? `<div class="epr-links">${links}</div>` : ""}
     `;
+  }
+
+  function renderModalActions(post) {
+    const commentUrl = getCommentUrl(post);
+    if (!commentUrl || !state.isWallCommentable || canUseCommentPanel(post))
+      return "";
+
+    return `
+      <div class="epr-modal-actions">
+        <a class="epr-comment-link" href="${escapeHtml(commentUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Commenter cette publication sur Padlet dans un nouvel onglet">
+          ${renderIcon("chat-left-text")}
+          <span>Commenter sur Padlet</span>
+        </a>
+      </div>
+    `;
+  }
+
+  function canUseCommentPanel(post) {
+    return Boolean(
+      state.isWallCommentable &&
+      post.commentPostId &&
+      getCommentWishHashid(post),
+    );
+  }
+
+  function renderCommentsPanel(post) {
+    if (!canUseCommentPanel(post)) return "";
+    const key = getCommentKey(post);
+    const comments = state.commentsByPost.get(key);
+    const isLoading = state.commentsLoadingByPost.has(key);
+    const isSubmitting = state.commentsSubmittingByPost.has(key);
+    const error = state.commentErrorsByPost.get(key) || "";
+    const commentItems = Array.isArray(comments)
+      ? comments.map(renderComment).join("")
+      : "";
+
+    return `
+      <aside class="epr-comments-panel" aria-label="Commentaires">
+        <div class="epr-comments-header">
+          ${renderIcon("chat-left-text")}
+          <h3>Commentaires</h3>
+        </div>
+        <div class="epr-comments-list">
+          ${
+            isLoading
+              ? `<p class="epr-comments-empty">Chargement des commentaires...</p>`
+              : commentItems ||
+                `<p class="epr-comments-empty">Aucun commentaire pour le moment.</p>`
+          }
+        </div>
+        <form class="epr-comment-form" data-post-id="${escapeHtml(post.id)}">
+          <label for="epr-comment-input-${escapeHtml(post.id)}">Ajouter un commentaire</label>
+          <textarea id="epr-comment-input-${escapeHtml(post.id)}" name="comment" rows="4" placeholder="Votre commentaire"></textarea>
+          ${error ? `<p class="epr-comment-error">${escapeHtml(error)}</p>` : ""}
+          <button type="submit" ${isSubmitting ? "disabled" : ""}>
+            ${renderIcon("chat-left-text")}
+            <span>${isSubmitting ? "Envoi..." : "Publier"}</span>
+          </button>
+        </form>
+      </aside>
+    `;
+  }
+
+  function renderComment(comment) {
+    const isEditing = state.commentsEditingById.has(comment.id);
+    const isDeleting = state.commentsDeletingById.has(comment.id);
+    const author = escapeHtml(comment.author || "Padlet");
+    const date = comment.createdAt
+      ? escapeHtml(
+          comment.createdAt.toLocaleDateString("fr-CA", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          }),
+        )
+      : "";
+    if (isEditing) {
+      return `
+        <article class="epr-comment epr-comment-editing" data-comment-id="${escapeHtml(comment.id)}">
+          <form class="epr-comment-edit-form" data-comment-id="${escapeHtml(comment.id)}">
+            <textarea name="comment" rows="3" aria-label="Modifier le commentaire">${escapeHtml(comment.body)}</textarea>
+            <div class="epr-comment-edit-actions">
+              <button type="submit">Enregistrer</button>
+              <button type="button" data-action="cancel-edit-comment">Annuler</button>
+            </div>
+          </form>
+        </article>
+      `;
+    }
+
+    return `
+      <article class="epr-comment" data-comment-id="${escapeHtml(comment.id)}">
+        <div class="epr-comment-meta">
+          <strong>${author}</strong>
+          ${date ? `<span>${date}</span>` : ""}
+        </div>
+        <p>${renderFormattedText(comment.body)}</p>
+        ${renderCommentActions(comment, isDeleting)}
+      </article>
+    `;
+  }
+
+  function renderCommentActions(comment, isDeleting) {
+    const actions = [];
+    if (comment.canEdit) {
+      actions.push(
+        `<button type="button" data-action="edit-comment">Modifier</button>`,
+      );
+    }
+    if (comment.canDelete) {
+      actions.push(
+        `<button type="button" data-action="delete-comment" ${isDeleting ? "disabled" : ""}>${isDeleting ? "Suppression..." : "Supprimer"}</button>`,
+      );
+    }
+    if (!actions.length) return "";
+    return `<div class="epr-comment-actions">${actions.join('<span aria-hidden="true">&middot;</span>')}</div>`;
+  }
+
+  function loadCommentsForVisiblePost({ force = false } = {}) {
+    const post = state.visiblePosts[state.modalIndex];
+    if (!post || !canUseCommentPanel(post)) return;
+    loadCommentsForPost(post, { force });
+  }
+
+  async function loadCommentsForPost(post, { force = false } = {}) {
+    const key = getCommentKey(post);
+    if (
+      state.commentsLoadingByPost.has(key) ||
+      (!force && state.commentsByPost.has(key))
+    )
+      return;
+
+    state.commentsLoadingByPost.add(key);
+    rerenderActiveModal(post);
+    try {
+      const response = await fetch(
+        `https://padlet.com/api/9/comments?wish_hashid=${encodeURIComponent(getCommentWishHashid(post))}&page_start=`,
+        { credentials: "include" },
+      );
+      const payload = await response.json();
+      const comments = (Array.isArray(payload.data) ? payload.data : [])
+        .map(apiCommentToComment)
+        .filter(Boolean);
+      state.commentsByPost.set(key, comments);
+      state.commentErrorsByPost.delete(key);
+    } catch {
+      state.commentsByPost.set(key, []);
+      state.commentErrorsByPost.set(
+        key,
+        "Impossible de charger les commentaires.",
+      );
+    } finally {
+      state.commentsLoadingByPost.delete(key);
+      rerenderActiveModal(post);
+    }
+  }
+
+  async function submitModalComment(form) {
+    const post = state.posts.find(
+      (candidate) => candidate.id === form.dataset.postId,
+    );
+    if (!post || !canUseCommentPanel(post)) return;
+    const textarea = form.elements.comment;
+    const body = cleanText(textarea.value || "");
+    if (!body) return;
+
+    const key = getCommentKey(post);
+    state.commentsSubmittingByPost.add(key);
+    state.commentErrorsByPost.delete(key);
+    rerenderActiveModal(post);
+
+    try {
+      const response = await fetch("https://padlet.com/api/8/comments", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/vnd.api+json, application/json",
+          ...getCsrfHeaders(),
+        },
+        body: JSON.stringify({
+          attributes: {
+            wish_id: post.commentPostId,
+            html_body: `<p>${escapeHtml(body)}</p>`,
+            attachment: null,
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error("comment-submit-failed");
+      const comment = apiCommentToComment(payload.data);
+      comment.canEdit = true;
+      comment.canDelete = true;
+      state.commentsByPost.set(key, [
+        ...(state.commentsByPost.get(key) || []),
+        comment,
+      ]);
+    } catch {
+      state.commentErrorsByPost.set(
+        key,
+        "Le commentaire n'a pas pu etre publie.",
+      );
+    } finally {
+      state.commentsSubmittingByPost.delete(key);
+      rerenderActiveModal(post);
+    }
+  }
+
+  async function submitEditComment(form) {
+    const commentId = form.dataset.commentId || "";
+    const post = state.visiblePosts[state.modalIndex];
+    if (!commentId || !post) return;
+    const key = getCommentKey(post);
+    const comments = state.commentsByPost.get(key) || [];
+    const comment = comments.find((candidate) => candidate.id === commentId);
+    if (!comment?.canEdit) return;
+    const body = cleanText(form.elements.comment.value || "");
+    if (!body) return;
+
+    state.commentErrorsByPost.delete(key);
+    try {
+      const response = await fetch(
+        `https://padlet.com/api/8/comments/${encodeURIComponent(commentId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/vnd.api+json, application/json",
+            ...getCsrfHeaders(),
+          },
+          body: JSON.stringify({
+            attributes: {
+              html_body: `<p>${escapeHtml(body)}</p>`,
+            },
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error("comment-edit-failed");
+      const updatedComment = {
+        ...comment,
+        ...apiCommentToComment(payload.data),
+        canEdit: comment.canEdit,
+        canDelete: comment.canDelete,
+      };
+      state.commentsByPost.set(
+        key,
+        comments.map((candidate) =>
+          candidate.id === commentId ? updatedComment : candidate,
+        ),
+      );
+      state.commentsEditingById.delete(commentId);
+    } catch {
+      state.commentErrorsByPost.set(
+        key,
+        "Le commentaire n'a pas pu etre modifie.",
+      );
+    } finally {
+      rerenderActiveModal(post);
+    }
+  }
+
+  function startEditComment(commentId) {
+    if (!commentId) return;
+    state.commentsEditingById.add(commentId);
+    renderPostModal();
+  }
+
+  function cancelEditComment(commentId) {
+    if (!commentId) return;
+    state.commentsEditingById.delete(commentId);
+    renderPostModal();
+  }
+
+  async function deleteModalComment(commentId) {
+    const post = state.visiblePosts[state.modalIndex];
+    if (!commentId || !post) return;
+    const key = getCommentKey(post);
+    const comments = state.commentsByPost.get(key) || [];
+    const comment = comments.find((candidate) => candidate.id === commentId);
+    if (!comment?.canDelete) return;
+    if (!confirm("Supprimer ce commentaire?")) return;
+
+    state.commentsDeletingById.add(commentId);
+    state.commentErrorsByPost.delete(key);
+    rerenderActiveModal(post);
+    try {
+      const response = await fetch(
+        `https://padlet.com/api/5/comments/${encodeURIComponent(commentId)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: {
+            Accept: "application/vnd.api+json, application/json",
+            ...getCsrfHeaders(),
+          },
+        },
+      );
+      if (!response.ok) throw new Error("comment-delete-failed");
+      state.commentsByPost.set(
+        key,
+        comments.filter((candidate) => candidate.id !== commentId),
+      );
+      state.commentsEditingById.delete(commentId);
+    } catch {
+      state.commentErrorsByPost.set(
+        key,
+        "Le commentaire n'a pas pu etre supprime.",
+      );
+    } finally {
+      state.commentsDeletingById.delete(commentId);
+      rerenderActiveModal(post);
+    }
+  }
+
+  function apiCommentToComment(comment) {
+    const attributes = comment?.attributes || {};
+    const createdAt = attributes.created_at
+      ? new Date(attributes.created_at)
+      : null;
+    return {
+      id: String(
+        attributes.id || comment?.id || hash(attributes.html_body || ""),
+      ),
+      author:
+        cleanText(attributes.author?.name || attributes.user?.name || "") ||
+        cleanText(attributes.author_name || attributes.user_name || ""),
+      body: cleanText(
+        htmlToText(attributes.html_body || attributes.body || ""),
+      ),
+      authorHashid: cleanText(
+        attributes.author_hashid ||
+          attributes.user_hashid ||
+          attributes.author?.hashid ||
+          attributes.user?.hashid ||
+          "",
+      ),
+      canEdit: canEditComment(attributes),
+      canDelete: canDeleteComment(attributes),
+      createdAt:
+        createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null,
+    };
+  }
+
+  function canEditComment(attributes) {
+    return Boolean(
+      attributes.can_edit ||
+      attributes.can_update ||
+      attributes.can_manage ||
+      attributes.current_user_can_edit ||
+      attributes.current_user_can_update ||
+      canManageComment(attributes),
+    );
+  }
+
+  function canDeleteComment(attributes) {
+    return Boolean(
+      attributes.can_delete ||
+      attributes.can_destroy ||
+      attributes.can_manage ||
+      attributes.current_user_can_delete ||
+      attributes.current_user_can_destroy ||
+      canManageComment(attributes),
+    );
+  }
+
+  function canManageComment(attributes) {
+    const authorHashid = cleanText(
+      attributes.author_hashid ||
+        attributes.user_hashid ||
+        attributes.author?.hashid ||
+        attributes.user?.hashid ||
+        "",
+    );
+    return Boolean(
+      state.canModerateComments ||
+      (authorHashid && authorHashid === state.currentUserHashid),
+    );
+  }
+
+  function rerenderActiveModal(post) {
+    const activePost = state.visiblePosts[state.modalIndex];
+    if (activePost?.id === post.id) renderPostModal();
+  }
+
+  function getCommentKey(post) {
+    return getCommentWishHashid(post) || post.id;
+  }
+
+  function getCommentWishHashid(post) {
+    return (
+      String(post.commentWishHashid || "") ||
+      getCommentWishHashidFromSlug(post.urlSlug) ||
+      getCommentWishHashidFromUrl(post.commentUrl)
+    );
+  }
+
+  function getCommentWishHashidFromSlug(slug) {
+    const normalized = normalizeWishSlug(slug || "");
+    return normalized ? `post_${normalized}` : "";
+  }
+
+  function getCommentWishHashidFromUrl(url) {
+    const slug = normalizeWishSlug(
+      String(url || "").match(/\/wish\/([^/?#]+)/)?.[1] || "",
+    );
+    return slug ? `post_${slug}` : "";
+  }
+
+  function getCsrfHeaders() {
+    const token = document
+      .querySelector("meta[name='csrf-token']")
+      ?.getAttribute("content");
+    return token ? { "X-CSRF-Token": token } : {};
+  }
+
+  function getCommentUrl(post) {
+    const explicitUrl = normalizePadletCommentUrl(post.commentUrl || "");
+    if (explicitUrl) return explicitUrl;
+    if (!USE_PADLET_WISH_URLS || !post.urlSlug) return "";
+    return normalizePadletCommentUrl(
+      `${location.origin}${BOARD_PATH.replace(/\/$/, "")}/wish/${encodeURIComponent(post.urlSlug)}`,
+    );
   }
 
   function renderPdfDescription(post) {
@@ -2338,6 +2912,10 @@
       ],
       filter: [
         "M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z",
+      ],
+      "chat-left-text": [
+        "M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414a2 2 0 0 0-1.414.586l-1.293 1.293A1 1 0 0 1 0 12.172V2a1 1 0 0 1 1-1h13zM1 2v10.172l1.293-1.293A3 3 0 0 1 4.414 10H14V2H1z",
+        "M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z",
       ],
       download: [
         "M.5 9.9a.5.5 0 0 1 .5.5v2.5A1.1 1.1 0 0 0 2.1 14h11.8a1.1 1.1 0 0 0 1.1-1.1v-2.5a.5.5 0 0 1 1 0v2.5a2.1 2.1 0 0 1-2.1 2.1H2.1A2.1 2.1 0 0 1 0 12.9v-2.5a.5.5 0 0 1 .5-.5z",
