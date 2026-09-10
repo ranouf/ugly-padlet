@@ -116,13 +116,13 @@ jobs:
 
           access_token=$(node -e "const data = JSON.parse(process.argv[1]); if (!data.access_token) { console.error(JSON.stringify(data)); process.exit(1); } console.log(data.access_token);" "$token_response")
 
-          curl -sS -X POST \
+          curl --fail-with-body -sS -X POST \
             -H "Authorization: Bearer $access_token" \
             -H "x-goog-api-version: 2" \
             -T "dist/uglypadlet-${{ needs.build.outputs.version }}-chrome-store.zip" \
             "https://chromewebstore.googleapis.com/upload/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:upload"
 
-          curl -sS -X POST \
+          curl --fail-with-body -sS -X POST \
             -H "Authorization: Bearer $access_token" \
             -H "x-goog-api-version: 2" \
             "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ secrets.CHROME_EXTENSION_ID }}:publish"
