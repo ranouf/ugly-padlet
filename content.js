@@ -2,7 +2,7 @@
   const APP_ID = "elan-padlet-reader";
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.26");
+  const APP_VERSION = getExtensionVersion("2.0.28");
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -315,10 +315,15 @@
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (!event.target.closest("[data-section-filter]")) closeSectionMenu();
       if (!event.target.closest("[data-status-filter]")) closeStatusMenu();
+      if (!event.target.closest(".epr-calendar-event")) closeCalendarMenus();
       if (action === "rescan") startFullLoad({ reset: true });
       if (action === "toggle-original") toggleOriginal();
       if (action === "toggle-filter-panel") toggleFilterPanel();
       if (action === "reset-filters") resetFilters();
+      if (action === "toggle-calendar-menu") {
+        event.preventDefault();
+        toggleCalendarMenu(event.target.closest(".epr-calendar-event"));
+      }
       if (action === "toggle-status-menu") toggleStatusMenu();
       if (action === "set-status")
         setStatusFilter(
@@ -351,7 +356,10 @@
         );
 
       const card = event.target.closest(".epr-card[data-post-id]");
-      if (card && !event.target.closest("a, button")) {
+      if (
+        card &&
+        !event.target.closest("a, button, summary, .epr-calendar-event")
+      ) {
         openPostModal(card.dataset.postId);
       }
     });
@@ -359,6 +367,7 @@
       if (!root.contains(event.target)) {
         closeStatusMenu();
         closeSectionMenu();
+        closeCalendarMenus();
       }
     });
     document.addEventListener("keydown", handleKeyboard);
@@ -797,16 +806,22 @@
     )
       ? ""
       : rawAttachmentTitle;
+    const links = apiWishLinks(attributes, title);
+    const images = apiWishImages(attributes);
+    const isSeparator = isTitleOnlyPost({
+      body,
+      attachmentTitle,
+      links,
+      images,
+    });
     const textParts = [title, body, attachmentTitle].filter(Boolean);
     const text = cleanText(textParts.join("\n\n"));
     if (!title || !text) return null;
 
     const dates = extractDates(text);
     const fallbackDate = readPadletPublishedDate(attributes);
-    const primaryDate = choosePrimaryDate(dates) || fallbackDate;
+    const primaryDate = fallbackDate || choosePrimaryDate(dates);
     const sectionId = String(attributes.wall_section_id || "");
-    const links = apiWishLinks(attributes, title);
-    const images = apiWishImages(attributes);
     const apiId = String(
       attributes.hashid || wish.id || attributes.id || hash(text),
     );
@@ -816,6 +831,7 @@
       index,
       title: limit(title, 110),
       text,
+      isSeparator,
       section: sectionMap.get(sectionId) || "Non classee",
       urlSlug: normalizeWishSlug(attributes.hashid || ""),
       commentUrl: normalizePadletCommentUrl(attributes.permalink || ""),
@@ -831,6 +847,7 @@
   }
 
   function apiWishLinks(attributes, title) {
+    const attachmentUrls = apiWishAttachmentUrls(attributes);
     const candidates = [
       {
         href: attributes.attachment,
@@ -859,7 +876,13 @@
 
     return candidates
       .filter((link) => link.href)
-      .filter((link) => !isImageHref(link.href))
+      .filter((link) => typeof link.href === "string")
+      .filter(
+        (link) =>
+          !attachmentUrls.some(
+            (attachment) => attachment.href === link.href && attachment.isImage,
+          ),
+      )
       .map((link) => ({
         href: link.href,
         label: limit(
@@ -875,22 +898,71 @@
       .slice(0, 6);
   }
 
-  function apiWishImages(attributes) {
-    const candidates = [
-      attributes.attachment_link?.preview_image?.url,
-      attributes.attachment_link?.provider_image?.url,
-      ...(Array.isArray(attributes.attachments)
-        ? attributes.attachments.flatMap((attachment) => [
-            attachment.url,
-            attachment.thumbnail_url,
-            attachment.preview_url,
-          ])
-        : []),
+  function apiWishAttachmentUrls(attributes) {
+    const attachmentLink = attributes.attachment_link || {};
+    const sources = [
+      attributes.attachment,
+      attachmentLink,
+      ...(Array.isArray(attributes.attachments) ? attributes.attachments : []),
+      attributes.wish_content?.attachment_props,
     ];
 
-    return candidates
-      .filter((src) => src && /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i.test(src))
-      .filter((src, index, arr) => arr.indexOf(src) === index)
+    return sources
+      .flatMap((source) => apiAttachmentUrlCandidates(source))
+      .filter((candidate) => candidate.href)
+      .filter(
+        (candidate, index, candidates) =>
+          candidates.findIndex((other) => other.href === candidate.href) ===
+          index,
+      );
+  }
+
+  function apiAttachmentUrlCandidates(source) {
+    if (!source) return [];
+    if (typeof source === "string")
+      return [{ href: source, isImage: isImageHref(source) }];
+    if (Array.isArray(source))
+      return source.flatMap(apiAttachmentUrlCandidates);
+    if (typeof source !== "object") return [];
+
+    const looksLikeImage =
+      /^image\//i.test(source.content_type || "") ||
+      /^(?:photo|image)$/i.test(source.content_category || "");
+    const urls = [
+      source.url,
+      source.canonical_url,
+      source.display_url,
+      source.download_url,
+      source.attachment,
+      source.attachment_url,
+      source.thumbnail_url,
+      source.preview_url,
+      source.preview_image?.url,
+      source.provider_image?.url,
+    ];
+
+    return urls.map((href) => ({
+      href,
+      isImage:
+        isImageHref(href) ||
+        (looksLikeImage &&
+          !/storage\.googleapis\.com\/padlet-assets\/image\/favicon\.ico/i.test(
+            String(href || ""),
+          )),
+    }));
+  }
+
+  function apiWishImages(attributes) {
+    return apiWishAttachmentUrls(attributes)
+      .filter((attachment) => attachment.isImage)
+      .map((attachment) => attachment.href)
+      .filter(
+        (src, index, images) =>
+          images.findIndex(
+            (image) =>
+              mediaDeduplicationKey(image) === mediaDeduplicationKey(src),
+          ) === index,
+      )
       .slice(0, 12);
   }
 
@@ -898,22 +970,9 @@
     const label = cleanText(title || "");
     if (!label) return false;
 
-    const attachmentUrls = [
-      attributes.attachment,
-      attributes.attachment_link?.url,
-      attributes.attachment_link?.preview_image?.url,
-      attributes.attachment_link?.provider_image?.url,
-      ...(Array.isArray(attributes.attachments)
-        ? attributes.attachments.flatMap((attachment) => [
-            attachment.url,
-            attachment.download_url,
-            attachment.attachment,
-            attachment.thumbnail_url,
-            attachment.preview_url,
-          ])
-        : []),
-    ];
-    const hasImageAttachment = attachmentUrls.some(isImageHref);
+    const hasImageAttachment = apiWishAttachmentUrls(attributes).some(
+      (attachment) => attachment.isImage,
+    );
     const compact = removeAccents(label.toLowerCase()).replace(/\s+/g, "");
     const looksLikeImageFilename =
       /\.(?:png|jpe?g|gif|webp|heic|heif)$/i.test(label) ||
@@ -1131,6 +1190,7 @@
       index: post.index,
       title: post.title,
       text: post.text,
+      isSeparator: Boolean(post.isSeparator),
       section: post.section,
       urlSlug: post.urlSlug || "",
       commentUrl: post.commentUrl || "",
@@ -1159,6 +1219,7 @@
       index: Number(post.index) || 0,
       title: post.title,
       text: post.text,
+      isSeparator: Boolean(post.isSeparator),
       section: post.section || "Non classee",
       urlSlug: post.urlSlug || "",
       commentUrl: normalizePadletCommentUrl(post.commentUrl || ""),
@@ -1179,7 +1240,9 @@
   }
 
   function getLatestPostDate(posts) {
-    const dates = posts.map((post) => post.date).filter(Boolean);
+    const dates = getCommunicationPosts(posts)
+      .map((post) => post.date)
+      .filter(Boolean);
     if (!dates.length) return null;
     return new Date(Math.max(...dates.map((date) => date.getTime())));
   }
@@ -1435,6 +1498,29 @@
     els.sectionMenu.hidden = true;
   }
 
+  function toggleCalendarMenu(eventElement) {
+    if (!eventElement) return;
+    const isOpen = eventElement.classList.contains("epr-calendar-open");
+    closeCalendarMenus(eventElement);
+    setCalendarMenuOpen(eventElement, !isOpen);
+  }
+
+  function closeCalendarMenus(exceptElement = null) {
+    root.querySelectorAll(".epr-calendar-open").forEach((eventElement) => {
+      if (eventElement !== exceptElement)
+        setCalendarMenuOpen(eventElement, false);
+    });
+  }
+
+  function setCalendarMenuOpen(eventElement, isOpen) {
+    eventElement.classList.toggle("epr-calendar-open", isOpen);
+    eventElement
+      .querySelector(".epr-calendar-trigger")
+      ?.setAttribute("aria-expanded", String(isOpen));
+    const menu = eventElement.querySelector(".epr-calendar-menu");
+    if (menu) menu.hidden = !isOpen;
+  }
+
   function setSelectedSections(sections) {
     state.sections = normalizeSelectedSections(sections);
     state.pendingSections = [...state.sections];
@@ -1478,16 +1564,20 @@
     }
     if (!state.posts.length) return;
 
+    const communicationPosts = getCommunicationPosts(state.posts);
     const renderedCards = els.list.querySelectorAll(".epr-card").length;
     if (
-      renderedCards === state.posts.length &&
+      renderedCards === communicationPosts.length &&
       !els.list.querySelector(".epr-empty")
     )
       return;
 
-    state.visiblePosts = state.posts;
-    els.summary.textContent = renderSummary(state.posts, state.posts.length);
-    els.list.innerHTML = state.posts.map(renderPost).join("");
+    state.visiblePosts = communicationPosts;
+    els.summary.textContent = renderSummary(
+      communicationPosts,
+      communicationPosts.length,
+    );
+    els.list.innerHTML = communicationPosts.map(renderPost).join("");
     queueCustomScrollbarUpdate();
   }
 
@@ -1695,10 +1785,25 @@
     if (isPadletUiChrome(text)) return false;
     if (looksLikeBoardContainer(text) || hasMultiplePostDescendants(node))
       return false;
-    if (text.length < 24 || text.length > 7000) return false;
+    const hasMediaContent = Boolean(node.querySelector("img, video"));
+    const hasHeading = Boolean(node.querySelector("h1, h2, h3"));
+    if (
+      (text.length < 24 && !(hasMediaContent && hasHeading)) ||
+      text.length > 7000
+    )
+      return false;
     if (rect.width < 120 || rect.height < 45) return false;
 
     const descriptor = `${node.tagName} ${node.className || ""} ${node.getAttribute("data-testid") || ""} ${node.getAttribute("aria-label") || ""}`;
+    const isTitleOnlyCandidate =
+      text.length >= 4 &&
+      text.length <= 160 &&
+      /article|post|card|subject|wish|surface|cell/i.test(descriptor) &&
+      node.querySelector("h1, h2, h3") &&
+      !node.querySelector("p, img, video, a[href]") &&
+      !hasDate(text);
+    if (isTitleOnlyCandidate) return true;
+
     const score = [
       /article|post|card|subject|wish|surface|cell/i.test(descriptor),
       hasDate(text),
@@ -1780,6 +1885,12 @@
       index,
       title: limit(title, 110),
       text: fullText,
+      isSeparator: isTitleOnlyPost({
+        body: getPostBodyCandidate(title, fullText),
+        attachmentTitle: "",
+        links,
+        images,
+      }),
       section,
       urlSlug: findPadletWishSlug(node),
       commentUrl: findPadletWishUrl(node),
@@ -1954,7 +2065,17 @@
       const year = Number(value);
       return year < 100 ? 2000 + year : year;
     }
-    return month >= 7 ? 2025 : 2026;
+    const schoolYears = readSchoolYears();
+    if (schoolYears) return month >= 7 ? schoolYears.start : schoolYears.end;
+    const currentYear = TODAY.getFullYear();
+    return month >= 7 ? currentYear : currentYear + 1;
+  }
+
+  function readSchoolYears() {
+    const source = `${BOARD_PATH} ${getPadletTitle()}`;
+    const match = source.match(/(20\d{2})\s*-\s*(20\d{2})/);
+    if (!match) return null;
+    return { start: Number(match[1]), end: Number(match[2]) };
   }
 
   function pushValidDate(dates, year, month, day) {
@@ -1989,7 +2110,11 @@
       state.pendingSections.length ? state.pendingSections : state.sections,
     );
     const sections = [
-      ...new Set(state.posts.map((post) => post.section).filter(Boolean)),
+      ...new Set(
+        getCommunicationPosts(state.posts)
+          .map((post) => post.section)
+          .filter(Boolean),
+      ),
     ].sort((a, b) => a.localeCompare(b, "fr"));
     state.sections = sections.filter((section) => current.has(section));
     state.pendingSections = [...state.sections];
@@ -2015,7 +2140,9 @@
 
   function render() {
     try {
-      const filtered = state.posts.filter(matchesFilters);
+      const filtered = getCommunicationPosts(state.posts).filter(
+        matchesFilters,
+      );
       state.visiblePosts = filtered;
       const source =
         (state.isLoadingAll || state.isCheckingRecent) && state.loadMessage
@@ -2025,7 +2152,7 @@
             : "";
       els.summary.textContent = renderSummary(
         filtered,
-        state.posts.length,
+        getCommunicationPosts(state.posts).length,
         source,
       );
 
@@ -2172,6 +2299,19 @@
     updateCustomScrollbar();
   }
 
+  function getCommunicationPosts(posts) {
+    return posts.filter((post) => !post.isSeparator);
+  }
+
+  function isTitleOnlyPost({ body, attachmentTitle, links, images }) {
+    return !body && !attachmentTitle && !links.length && !images.length;
+  }
+
+  function getPostBodyCandidate(title, text) {
+    const titleText = cleanText(title || "");
+    const bodyText = cleanText(text || "");
+    return cleanText(bodyText.replace(titleText, ""));
+  }
   function matchesFilters(post) {
     const query = removeAccents(state.query.trim().toLowerCase());
     const linkText = post.links
@@ -2209,6 +2349,7 @@
       : "Date non detectee";
     const body = renderFormattedText(
       getPostBodyText(post, { omitLinkLabels: true }),
+      { post, calendar: true },
     );
     const displayLinks = getDisplayLinks(post);
     const hasPdf = displayLinks.some(isPdfLink);
@@ -2361,6 +2502,15 @@
     );
     if (shouldRefreshComments) state.modalCommentsRefreshKey = commentsKey;
     const commentsPanel = renderCommentsPanel(post);
+    const modalControls = `
+      <div class="epr-modal-controls">
+        <div class="epr-modal-nav-group" aria-label="Navigation entre les publications">
+          <button type="button" class="epr-modal-nav epr-modal-prev" data-action="previous-post" aria-label="Publication precedente">${renderIcon("chevron-left")}</button>
+          <button type="button" class="epr-modal-nav epr-modal-next" data-action="next-post" aria-label="Publication suivante">${renderIcon("chevron-right")}</button>
+        </div>
+        <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
+      </div>
+    `;
     const panel = pdfLink
       ? `
       <article class="epr-modal-panel epr-modal-panel-pdf">
@@ -2373,7 +2523,7 @@
             </div>
             <h2>${escapeHtml(post.title)}</h2>
           </div>
-          <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
+          ${modalControls}
         </header>
         <div class="epr-modal-layout${commentsPanel ? " epr-modal-layout-comments" : ""}">
           <div class="epr-modal-main">
@@ -2396,7 +2546,7 @@
             </div>
             <h2>${escapeHtml(post.title)}</h2>
           </div>
-          <button type="button" class="epr-modal-close" data-action="close-modal" aria-label="Fermer">${renderIcon("x-lg")}</button>
+          ${modalControls}
         </header>
         <div class="epr-modal-layout${commentsPanel ? " epr-modal-layout-comments" : ""}">
           <div class="epr-modal-main">
@@ -2411,9 +2561,7 @@
     `;
     modal.innerHTML = `
       <div class="epr-modal-backdrop" data-action="close-modal"></div>
-      <button type="button" class="epr-modal-nav epr-modal-prev" data-action="previous-post" aria-label="Publication precedente">${renderIcon("chevron-left")}</button>
       ${panel}
-      <button type="button" class="epr-modal-nav epr-modal-next" data-action="next-post" aria-label="Publication suivante">${renderIcon("chevron-right")}</button>
     `;
     root.appendChild(modal);
     if (pdfLink) resolveModalPdfViewer(modal, pdfLink);
@@ -2450,6 +2598,7 @@
   function renderPostBody(post) {
     const body = renderFormattedText(
       getPostBodyText(post, { omitLinkLabels: true }),
+      { post, calendar: true },
     );
     const displayLinks = getDisplayLinks(post);
     const links = renderLinks(displayLinks);
@@ -2891,6 +3040,7 @@
   function renderPdfDescription(post) {
     const body = renderFormattedText(
       getPostBodyText(post, { omitLinkLabels: true }),
+      { post, calendar: true },
     );
     return body ? `<div class="epr-pdf-description"><p>${body}</p></div>` : "";
   }
@@ -2924,6 +3074,23 @@
       "box-arrow-up-right": [
         "M8.636 3.5a.5.5 0 0 0 0 1h2.657L6.146 9.646a.5.5 0 1 0 .708.708L12 5.207v2.657a.5.5 0 0 0 1 0V4a.5.5 0 0 0-.5-.5H8.636z",
         "M2.5 2A1.5 1.5 0 0 0 1 3.5v10A1.5 1.5 0 0 0 2.5 15h10a1.5 1.5 0 0 0 1.5-1.5v-3a.5.5 0 0 0-1 0v3a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h3a.5.5 0 0 0 0-1h-3z",
+      ],
+      "calendar-plus": [
+        "M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v3.5a.5.5 0 0 1-1 0V5H1v8a1 1 0 0 0 1 1h5.5a.5.5 0 0 1 0 1H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4h14V3a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v1z",
+        "M12.5 8a.5.5 0 0 1 .5.5V11h2.5a.5.5 0 0 1 0 1H13v2.5a.5.5 0 0 1-1 0V12H9.5a.5.5 0 0 1 0-1H12V8.5a.5.5 0 0 1 .5-.5z",
+      ],
+      google: [
+        "M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.69 7.69 0 0 1 5.352 2.082l-2.284 2.284A4.35 4.35 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.8 4.8 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.7 3.7 0 0 0 1.599-2.431H8v-3.08h7.545z",
+      ],
+      microsoft: [
+        "M0 0h7.6v7.6H0V0zm8.4 0H16v7.6H8.4V0zM0 8.4h7.6V16H0V8.4zm8.4 0H16V16H8.4V8.4z",
+      ],
+      apple: [
+        "M11.182.008C11.148-.03 9.923.023 8.857 1.18c-1.066 1.156-.902 2.482-.878 2.516.024.034 1.52.087 2.475-1.258.955-1.345.762-2.391.728-2.43zm3.314 11.733c-.048-.096-2.325-1.234-2.113-3.422.213-2.188 1.675-2.789 1.698-2.854.023-.065-.597-.79-1.254-1.157a3.7 3.7 0 0 0-1.563-.434c-.108-.003-.483-.095-1.254.116-.508.139-1.653.589-1.968.607-.316.018-1.256-.522-2.267-.665-.647-.125-1.333.131-1.824.328-.49.196-1.422.853-2.056 2.048-.634 1.195-.826 3.296-.312 4.87.514 1.573 1.304 2.65 1.93 3.396.625.747 1.234 1.263 1.855 1.263.622 0 1.006-.398 2.079-.398 1.072 0 1.331.398 2.113.398.78 0 1.37-.685 1.855-1.219.485-.535.914-1.153 1.196-1.689.282-.535.424-1.092.386-1.188z",
+      ],
+      "calendar-event": [
+        "M11 6.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z",
+        "M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z",
       ],
       "x-lg": [
         "M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z",
@@ -2988,12 +3155,384 @@
     ).replace(/\s+/g, " ");
   }
 
-  function renderFormattedText(text) {
-    return renderAutoLinkedText(
-      normalizeSentenceSpacing(text).replace(/\n{2,}/g, "\n"),
-    ).replace(/\n/g, "<br>");
+  function renderFormattedText(text, options = {}) {
+    const normalized = normalizeSentenceSpacing(text).replace(/\n{2,}/g, "\n");
+    if (options.calendar && options.post) {
+      return renderCalendarText(normalized, options.post);
+    }
+    return renderAutoLinkedText(normalized).replace(/\n/g, "<br>");
   }
 
+  function renderCalendarText(text, post) {
+    return String(text || "")
+      .split("\n")
+      .map((line) => renderCalendarLine(line, post))
+      .join("<br>");
+  }
+
+  function renderCalendarLine(line, post) {
+    const events = extractCalendarEventsFromLine(line, post);
+    if (!events.length) return renderAutoLinkedText(line);
+
+    let result = "";
+    let cursor = 0;
+    for (const event of events) {
+      if (event.startIndex < cursor) continue;
+      result += renderAutoLinkedText(line.slice(cursor, event.startIndex));
+      result += renderCalendarEvent(event);
+      cursor = event.endIndex;
+    }
+    return result + renderAutoLinkedText(line.slice(cursor));
+  }
+
+  function extractCalendarEventsFromLine(line, post) {
+    const source = String(line || "");
+    if (!shouldSuggestCalendarEvent(source)) return [];
+
+    const events = [];
+    const normalized = removeAccents(source.toLowerCase());
+    const monthNames =
+      "janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec";
+    const weekdayNames = "lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche";
+    const alternativePattern = new RegExp(
+      `(?:${weekdayNames})\\s+ou\\s+(?:${weekdayNames})\\s+(\\d{1,2})(?:er)?\\s+ou\\s+(\\d{1,2})(?:er)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?`,
+      "gi",
+    );
+    const datePattern = new RegExp(
+      `(?:(?:${weekdayNames})\\s+(?:le\\s+)?)?(\\d{1,2})(?:er)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?`,
+      "gi",
+    );
+
+    for (const match of normalized.matchAll(alternativePattern)) {
+      const month = MONTHS.get(match[3]);
+      const year = match[4] ? Number(match[4]) : inferCalendarYear(month);
+      const range = getCalendarDateTextRange(source, normalized, match);
+      [Number(match[1]), Number(match[2])].forEach((day) => {
+        const date = buildValidCalendarDate(year, month, day);
+        if (!date) return;
+        events.push(
+          buildCalendarEvent({
+            line: source,
+            post,
+            date,
+            dateText: source.slice(range.startIndex, range.dateEndIndex),
+            separatorText: range.separatorText,
+            startIndex: range.startIndex,
+            endIndex: range.endIndex,
+          }),
+        );
+      });
+    }
+
+    if (events.length) return dedupeCalendarEvents(events);
+
+    for (const match of normalized.matchAll(datePattern)) {
+      const month = MONTHS.get(match[2]);
+      const year = match[3] ? Number(match[3]) : inferCalendarYear(month);
+      const date = buildValidCalendarDate(year, month, Number(match[1]));
+      if (!date) continue;
+      const range = getCalendarDateTextRange(source, normalized, match);
+      events.push(
+        buildCalendarEvent({
+          line: source,
+          post,
+          date,
+          dateText: source.slice(range.startIndex, range.dateEndIndex),
+          separatorText: range.separatorText,
+          startIndex: range.startIndex,
+          endIndex: range.endIndex,
+        }),
+      );
+    }
+
+    return dedupeCalendarEvents(events);
+  }
+
+  function getCalendarDateTextRange(source, normalized, match) {
+    const prefix = normalized
+      .slice(0, match.index)
+      .match(
+        /(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(?:le\s+)?$/,
+      );
+    const startIndex = prefix ? match.index - prefix[0].length : match.index;
+    const dateEndIndex = match.index + match[0].length;
+    const separator = source.slice(dateEndIndex).match(/^\s*:/)?.[0] || "";
+    return {
+      startIndex,
+      dateEndIndex,
+      endIndex: dateEndIndex + separator.length,
+      separatorText: separator,
+      text: source.slice(startIndex, dateEndIndex),
+    };
+  }
+  function shouldSuggestCalendarEvent(line) {
+    const normalized = removeAccents(line.toLowerCase());
+    if (
+      /\b(?:pv|proces-verbal|proces verbal|ordre du jour)\b/.test(normalized)
+    ) {
+      return /\b(?:rencontre|se rencontrera|aura lieu|se tiendra|invitation|fete|sortie|photo|journee|agenda|date limite|avant le)\b/.test(
+        normalized,
+      );
+    }
+    return !/\b(?:projet educatif|5-10 minutes)\b/.test(normalized);
+  }
+
+  function buildCalendarEvent({
+    line,
+    post,
+    date,
+    dateText,
+    separatorText = "",
+    startIndex,
+    endIndex,
+  }) {
+    const timeRange = extractCalendarTimeRange(line);
+    const start = timeRange
+      ? setCalendarTime(date, timeRange.startHour, timeRange.startMinute)
+      : date;
+    const end =
+      timeRange?.endHour != null
+        ? setCalendarTime(date, timeRange.endHour, timeRange.endMinute)
+        : timeRange
+          ? new Date(start.getTime() + 60 * 60 * 1000)
+          : null;
+    const title = cleanText(post.title || line || "Evenement Padlet");
+    const url = getCommentUrl(post) || location.href;
+    const description = cleanText(`${line}\n\nCommunication Padlet: ${url}`);
+    return {
+      id: hash(`${post.id}|${dateText}|${start.toISOString()}|${line}`),
+      title,
+      description,
+      location: "",
+      allDay: !timeRange,
+      start,
+      end,
+      dateText,
+      separatorText,
+      startIndex,
+      endIndex,
+    };
+  }
+
+  function extractCalendarTimeRange(line) {
+    const normalized = removeAccents(String(line || "").toLowerCase());
+    const match = normalized.match(
+      /\b(?:a|à|de|entre|vers)?\s*(\d{1,2})h(?:(\d{2}))?\s*(?:-|a|à|et)?\s*(?:(\d{1,2})h(?:(\d{2}))?)?/,
+    );
+    if (!match) return null;
+    return {
+      startHour: Number(match[1]),
+      startMinute: Number(match[2] || 0),
+      endHour: match[3] == null ? null : Number(match[3]),
+      endMinute: match[3] == null ? null : Number(match[4] || 0),
+    };
+  }
+
+  function setCalendarTime(date, hour, minute) {
+    const result = new Date(date);
+    result.setHours(hour, minute, 0, 0);
+    return result;
+  }
+
+  function buildValidCalendarDate(year, month, day) {
+    if (
+      !Number.isFinite(year) ||
+      !Number.isFinite(month) ||
+      !Number.isFinite(day)
+    ) {
+      return null;
+    }
+    const date = new Date(year, month, day);
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+    return startOfDay(date);
+  }
+
+  function inferCalendarYear(month) {
+    const match = BOARD_PATH.match(/(20\d{2})-(20\d{2})/);
+    if (match) return month >= 7 ? Number(match[1]) : Number(match[2]);
+    return normalizeYear(null, month);
+  }
+
+  function dedupeCalendarEvents(events) {
+    const seen = new Set();
+    return events.filter((event) => {
+      const key = `${event.startIndex}|${event.endIndex}|${event.start.toISOString()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function renderCalendarEvent(event) {
+    return [
+      `<span class="epr-calendar-event">`,
+      `<span class="epr-calendar-date-text">${escapeHtml(event.dateText)}</span>`,
+      event.separatorText
+        ? `<span class="epr-calendar-separator">${escapeHtml(event.separatorText)}</span>`
+        : "",
+      `<button type="button" class="epr-calendar-trigger" data-action="toggle-calendar-menu" aria-expanded="false" aria-label="Ajouter ${escapeHtml(event.dateText)} a l'agenda" title="Ajouter a l'agenda">`,
+      renderIcon("calendar-plus"),
+      `</button>`,
+      `<span class="epr-calendar-menu" role="menu" aria-label="Ajouter a l'agenda" hidden>`,
+      renderCalendarMenuItem(
+        "Google Calendar",
+        "google",
+        buildGoogleCalendarUrl(event),
+        { external: true },
+      ),
+      renderCalendarMenuItem(
+        "Outlook",
+        "microsoft",
+        buildOutlookCalendarUrl(event),
+        { external: true },
+      ),
+      renderCalendarMenuItem(
+        "Apple Calendar",
+        "apple",
+        buildIcsDataUrl(event),
+        {
+          download: buildIcsFileName(event),
+        },
+      ),
+      renderCalendarMenuItem(
+        "Fichier .ics",
+        "calendar-event",
+        buildIcsDataUrl(event),
+        { download: buildIcsFileName(event) },
+      ),
+      `</span>`,
+      `</span>`,
+    ].join("");
+  }
+
+  function renderCalendarMenuItem(label, icon, href, options = {}) {
+    const target = options.external
+      ? ' target="_blank" rel="noopener noreferrer"'
+      : "";
+    const download = options.download
+      ? ` download="${escapeHtml(options.download)}"`
+      : "";
+    return `<a role="menuitem" href="${escapeHtml(href)}"${target}${download}>${renderIcon(icon)}<span>${escapeHtml(label)}</span></a>`;
+  }
+  function buildGoogleCalendarUrl(event) {
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: event.title,
+      details: event.description,
+    });
+    if (event.location) params.set("location", event.location);
+    params.set("dates", formatCalendarDateRange(event, "google"));
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
+  function buildOutlookCalendarUrl(event) {
+    const params = new URLSearchParams({
+      path: "/calendar/action/compose",
+      rru: "addevent",
+      subject: event.title,
+      body: event.description,
+      startdt: event.allDay
+        ? formatDateOnly(event.start)
+        : event.start.toISOString(),
+    });
+    if (event.end) {
+      params.set(
+        "enddt",
+        event.allDay
+          ? formatDateOnly(addDays(event.start, 1))
+          : event.end.toISOString(),
+      );
+    }
+    if (event.location) params.set("location", event.location);
+    return `https://outlook.office.com/calendar/0/deeplink/compose?${params.toString()}`;
+  }
+
+  function buildIcsDataUrl(event) {
+    return `data:text/calendar;charset=utf-8,${encodeURIComponent(buildIcsContent(event))}`;
+  }
+
+  function buildIcsContent(event) {
+    const uid = `${event.id}@uglypadlet.carnould.com`;
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//UglyPadlet//Calendar//FR",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      `UID:${escapeIcsText(uid)}`,
+      `DTSTAMP:${formatIcsDateTime(new Date())}`,
+      `SUMMARY:${escapeIcsText(event.title)}`,
+      `DESCRIPTION:${escapeIcsText(event.description)}`,
+    ];
+    if (event.allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${formatDateOnly(event.start)}`);
+      lines.push(`DTEND;VALUE=DATE:${formatDateOnly(addDays(event.start, 1))}`);
+    } else {
+      lines.push(`DTSTART:${formatIcsDateTime(event.start)}`);
+      lines.push(
+        `DTEND:${formatIcsDateTime(event.end || new Date(event.start.getTime() + 60 * 60 * 1000))}`,
+      );
+    }
+    if (event.location) lines.push(`LOCATION:${escapeIcsText(event.location)}`);
+    lines.push("END:VEVENT", "END:VCALENDAR");
+    return lines.join("\r\n");
+  }
+
+  function formatCalendarDateRange(event) {
+    if (event.allDay) {
+      return `${formatDateOnly(event.start)}/${formatDateOnly(addDays(event.start, 1))}`;
+    }
+    return `${formatGoogleDateTime(event.start)}/${formatGoogleDateTime(event.end || new Date(event.start.getTime() + 60 * 60 * 1000))}`;
+  }
+
+  function formatGoogleDateTime(date) {
+    return date.toISOString().replace(/[-:]|\.\d{3}/g, "");
+  }
+
+  function formatIcsDateTime(date) {
+    return formatGoogleDateTime(date);
+  }
+
+  function formatDateOnly(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}${month}${day}`;
+  }
+
+  function addDays(date, days) {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  }
+
+  function escapeIcsText(value) {
+    return String(value || "")
+      .replace(/\\/g, "\\\\")
+      .replace(/\n/g, "\\n")
+      .replace(/,/g, "\\,")
+      .replace(/;/g, "\\;");
+  }
+
+  function buildIcsFileName(event) {
+    return `${slugifyFileName(event.title)}-${formatDateOnly(event.start)}.ics`;
+  }
+
+  function slugifyFileName(value) {
+    const slug = removeAccents(String(value || "evenement"))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    return slug || "evenement-padlet";
+  }
   function renderAutoLinkedText(text) {
     const source = String(text || "");
     const linkPattern = createInlineLinkPattern();
@@ -3616,6 +4155,16 @@
     }
   }
 
+  function mediaDeduplicationKey(href) {
+    try {
+      const url = new URL(href, location.href);
+      const parts = url.pathname.split("/").filter(Boolean);
+      return parts.slice(-2).join("/").toLowerCase() || url.pathname;
+    } catch {
+      return String(href || "").toLowerCase();
+    }
+  }
+
   function withPdfViewerOptions(href) {
     const options = "view=FitH&zoom=page-width&navpanes=0";
     if (!href) return href;
@@ -3654,6 +4203,11 @@
       closeSectionMenu();
       return;
     }
+    if (event.key === "Escape" && root.querySelector(".epr-calendar-open")) {
+      event.preventDefault();
+      closeCalendarMenus();
+      return;
+    }
     if (state.modalIndex < 0) return;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -3670,9 +4224,7 @@
   }
 
   function stripDuplicateTitle(text, title) {
-    return text.startsWith(title)
-      ? text.slice(title.length).trim() || text
-      : text;
+    return text.startsWith(title) ? text.slice(title.length).trim() : text;
   }
 
   function isPadletUiChrome(text) {
