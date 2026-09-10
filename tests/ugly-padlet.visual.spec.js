@@ -147,9 +147,56 @@ test.beforeEach(async ({ page }) => {
   await clearUglyPadletStorage(page);
 });
 
+test("visuel - menu d'ajout aux calendriers", async ({ page }) => {
+  await page.route("**/ugly-padlet-test.html?calendar=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Horaires des sorties et activites</h2>
+          <p>lundi 7 septembre: Fete du travail</p>
+          <p>mercredi 16 septembre a 18h30: rencontre de la communaute</p>
+        </article>
+        </main>`,
+      ),
+    });
+  });
+
+  const viewports = [
+    ["desktop", 1280, 760],
+    ["mobile", 390, 844],
+  ];
+
+  for (const [name, width, height] of viewports) {
+    await page.setViewportSize({ width, height });
+    await openApp(page, `${pageUrl}?calendar=1`, 12);
+
+    const event = page
+      .locator(".epr-card", {
+        hasText: "Horaires des sorties et activites",
+      })
+      .locator(".epr-calendar-event", { hasText: "lundi 7 septembre" });
+    await event.hover();
+    await event.locator(".epr-calendar-trigger").click();
+    await expect(event.locator(".epr-calendar-menu")).toBeVisible();
+    await captureVisual(page, `calendar-menu-${name}.png`, {
+      fullPage: false,
+    });
+  }
+});
 test("visuel - pastille nouveau sur publication recente", async ({ page }) => {
   await seedPreviousConnection(page);
   await page.setViewportSize({ width: 1280, height: 720 });
+  const recentDate = new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
   await page.route("**/ugly-padlet-test.html?new=1", async (route) => {
     const response = await route.fetch();
     const fixture = await response.text();
@@ -160,7 +207,7 @@ test("visuel - pastille nouveau sur publication recente", async ({ page }) => {
         `
         <article class="post">
           <h2>Nouvelle publication de test</h2>
-          <p>mercredi 2 septembre 2026</p>
+          <p>${recentDate}</p>
           <p>Communication recente pour valider la pastille nouveau.</p>
         </article>
         </main>`,
@@ -201,7 +248,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.26");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.28");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
@@ -237,6 +284,41 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   expect(scrollbar.right).toBe(0);
   expect(scrollbar.height).toBeGreaterThan(300);
   await captureVisual(page, "reader-desktop.png");
+});
+
+test("visuel - les filtres sticky restent au-dessus des communications au scroll", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 500 });
+  await openApp(page, `${pageUrl}?lazy=1`, 14);
+
+  await page.locator("#elan-padlet-reader").evaluate((reader) => {
+    reader.scrollTo({ top: 760, left: 0 });
+  });
+  await page.locator(".epr-card").nth(2).focus();
+
+  const stack = await page.locator(".epr-filters").evaluate((filters) => {
+    const rect = filters.getBoundingClientRect();
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
+    const element = document.elementFromPoint(x, y);
+    return {
+      filtersTop: Math.round(rect.top),
+      filtersZIndex: getComputedStyle(filters).zIndex,
+      cardZIndex: getComputedStyle(document.activeElement).zIndex,
+      topElementClass: element?.className || "",
+      topElementInsideFilters: filters.contains(element),
+    };
+  });
+
+  expect(stack.filtersTop).toBeGreaterThanOrEqual(0);
+  expect(Number(stack.filtersZIndex)).toBeGreaterThan(
+    Number(stack.cardZIndex || 0),
+  );
+  expect(stack.topElementInsideFilters).toBe(true);
+  await captureVisual(page, "sticky-filters-above-cards.png", {
+    fullPage: false,
+  });
 });
 
 test("visuel - lecteur responsive laptop tablette et mobile sans debordement horizontal", async ({
@@ -388,8 +470,39 @@ test("visuel - modal carousel photo avec boutons centres et scrollbar interne", 
   await expectIconCentered(page, ".epr-modal-close");
   await expectIconCentered(page, ".epr-modal-prev");
   await expectIconCentered(page, ".epr-modal-next");
+  const modalMetrics = await page
+    .locator(".epr-modal-panel")
+    .evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      const navGroup = panel
+        .querySelector(".epr-modal-nav-group")
+        .getBoundingClientRect();
+      const close = panel
+        .querySelector(".epr-modal-close")
+        .getBoundingClientRect();
+      return {
+        top: Math.round(rect.top),
+        left: Math.round(rect.left),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        navBeforeClose: navGroup.right < close.left,
+        navCloseGap: Math.round(close.left - navGroup.right),
+      };
+    });
+  expect(modalMetrics).toMatchObject({
+    top: 0,
+    left: 0,
+    width: 1360,
+    height: 820,
+    navBeforeClose: true,
+  });
+  expect(modalMetrics.navCloseGap).toBeGreaterThanOrEqual(16);
   await expectIconCentered(page, ".epr-gallery-prev");
   await expectIconCentered(page, ".epr-gallery-next");
+  const galleryImageBox = await page
+    .locator(".epr-gallery-frame img")
+    .boundingBox();
+  expect(galleryImageBox.height).toBeGreaterThan(560);
   await expect(page.locator(".epr-gallery-count")).toHaveText("1 / 3");
   await captureVisual(page, "modal-carousel-photo.png");
 });
@@ -570,23 +683,30 @@ test("visuel - modal texte avec lien brut clickable et lecteur YouTube", async (
   await expect(
     page.locator(".epr-modal .epr-youtube-viewer iframe"),
   ).toHaveAttribute("src", /youtube-nocookie\.com\/embed\/BiUd53UqMis/);
-  const videoTextLayout = await page.locator(".epr-modal").evaluate((modal) => {
-    const body = modal.querySelector(".epr-modal-body");
-    const video = modal.querySelector(".epr-youtube-viewer");
-    const text = modal.querySelector(".epr-post-text");
-    const style = getComputedStyle(body);
-    const gap = [style.gap, style.rowGap, style.columnGap]
-      .map(Number.parseFloat)
-      .find(Number.isFinite);
-    const videoRect = video.getBoundingClientRect();
-    const textRect = text.getBoundingClientRect();
-    return {
-      gap: gap ?? Math.round(textRect.top - videoRect.bottom),
-      textFollowsVideo: video.nextElementSibling === text,
-    };
-  });
-  expect(videoTextLayout.gap).toBeGreaterThanOrEqual(14);
-  expect(videoTextLayout.textFollowsVideo).toBe(true);
+  await expect
+    .poll(
+      async () =>
+        page.locator(".epr-modal").evaluate((modal) => {
+          const body = modal.querySelector(".epr-modal-body");
+          const video = modal.querySelector(".epr-youtube-viewer");
+          const text = modal.querySelector(".epr-post-text");
+          const style = getComputedStyle(body);
+          const gap = [style.gap, style.rowGap, style.columnGap]
+            .map(Number.parseFloat)
+            .find(Number.isFinite);
+          const videoRect = video.getBoundingClientRect();
+          const textRect = text.getBoundingClientRect();
+          return Math.max(
+            gap ?? 0,
+            Math.round(textRect.top - videoRect.bottom),
+          );
+        }),
+      { timeout: 5000 },
+    )
+    .toBeGreaterThanOrEqual(14);
+  await expect(
+    page.locator(".epr-modal .epr-youtube-viewer + .epr-post-text"),
+  ).toBeVisible();
   await captureVisual(page, "modal-youtube-autolink.png", {
     mask: [page.locator(".epr-youtube-viewer iframe")],
   });

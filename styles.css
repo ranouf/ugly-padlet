@@ -36,7 +36,14 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   scrollbar-gutter: stable;
   background: var(--epr-reader-background);
   color: #202124;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   line-height: 1.5;
   pointer-events: none;
   scrollbar-color: var(--epr-scrollbar-thumb) var(--epr-scrollbar-track);
@@ -234,7 +241,7 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 .epr-header {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 80;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -310,7 +317,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 
 .epr-actions button:focus-visible,
 .epr-links a:focus-visible {
-  box-shadow: 0 0 0 3px var(--epr-action-ring), var(--epr-action-shadow);
+  box-shadow:
+    0 0 0 3px var(--epr-action-ring),
+    var(--epr-action-shadow);
 }
 
 .epr-actions button:active,
@@ -320,15 +329,149 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   color: white;
   box-shadow: 0 4px 10px rgba(32, 33, 36, 0.14);
 }
+.epr-calendar-event {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  background: rgba(47, 95, 111, 0.08);
+  color: var(--epr-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.epr-calendar-date-text {
+  padding: 1px 3px 1px 6px;
+}
+
+.epr-calendar-separator {
+  margin-left: -2px;
+}
+
+.epr-calendar-event:hover,
+.epr-calendar-event:focus-within {
+  background: rgba(47, 95, 111, 0.14);
+}
+
+.epr-calendar-trigger {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(47, 95, 111, 0.28);
+  border-radius: 999px;
+  background: white;
+  color: var(--epr-action-bg);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(1px);
+  transition:
+    opacity 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.epr-calendar-event:hover .epr-calendar-trigger,
+.epr-calendar-event:focus-within .epr-calendar-trigger {
+  opacity: 1;
+}
+
+.epr-calendar-trigger:hover,
+.epr-calendar-trigger:focus-visible {
+  border-color: var(--epr-action-bg-hover);
+  background: var(--epr-action-bg-hover);
+  color: white;
+  outline: none;
+  box-shadow: var(--epr-action-shadow);
+}
+
+.epr-calendar-trigger:focus-visible {
+  box-shadow:
+    0 0 0 3px var(--epr-action-ring),
+    var(--epr-action-shadow);
+}
+
+.epr-calendar-trigger .epr-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.epr-calendar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 6;
+  display: none;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid rgba(47, 95, 111, 0.18);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 16px 38px rgba(32, 33, 36, 0.2);
+  transform: translateX(-50%);
+}
+
+.epr-calendar-event.epr-calendar-open .epr-calendar-menu {
+  display: grid;
+  gap: 2px;
+}
+
+.epr-calendar-menu a {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--epr-text);
+  font-weight: 700;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.epr-calendar-menu a:hover,
+.epr-calendar-menu a:focus-visible {
+  background: rgba(47, 95, 111, 0.1);
+  color: var(--epr-action-bg-hover);
+  outline: none;
+}
+
+.epr-calendar-menu .epr-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.epr-calendar-menu .epr-icon-google {
+  color: #1a73e8;
+}
+
+.epr-calendar-menu .epr-icon-microsoft {
+  color: #2f5f6f;
+}
+
+.epr-calendar-menu .epr-icon-apple {
+  color: #202124;
+}
+
+.epr-calendar-menu .epr-icon-calendar-event {
+  color: var(--epr-action-bg);
+}
 
 .epr-filters {
   position: sticky;
   top: var(--epr-header-height);
-  z-index: 2;
+  z-index: 70;
   display: grid;
   align-items: end;
   min-width: 0;
-  grid-template-columns: minmax(260px, 2fr) minmax(170px, 1fr) minmax(180px, 1fr) repeat(2, minmax(150px, 0.9fr)) 48px;
+  grid-template-columns:
+    minmax(260px, 2fr) minmax(170px, 1fr) minmax(180px, 1fr)
+    repeat(2, minmax(150px, 0.9fr)) 48px;
   gap: 12px;
   padding: 18px var(--epr-content-inset);
   background: var(--epr-header-background);
@@ -404,7 +547,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 .epr-filter-reset button:focus-visible {
   border-color: var(--epr-action-bg-hover);
   outline: none;
-  box-shadow: 0 0 0 3px var(--epr-action-ring), var(--epr-action-shadow);
+  box-shadow:
+    0 0 0 3px var(--epr-action-ring),
+    var(--epr-action-shadow);
 }
 
 .epr-filter-reset button:active {
@@ -444,7 +589,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 
 .epr-filter-toggle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--epr-action-ring), var(--epr-action-shadow);
+  box-shadow:
+    0 0 0 3px var(--epr-action-ring),
+    var(--epr-action-shadow);
 }
 
 .epr-filter-toggle:active {
@@ -560,7 +707,13 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   top: calc(100% + 6px);
   left: 0;
   width: min(520px, max(100%, calc(100vw - 48px)));
-  max-height: min(420px, calc(100vh - var(--epr-header-height) - var(--epr-filter-control-height) - var(--epr-credits-height) - 92px));
+  max-height: min(
+    420px,
+    calc(
+      100vh - var(--epr-header-height) - var(--epr-filter-control-height) -
+        var(--epr-credits-height) - 92px
+    )
+  );
   overflow: auto;
   border: 1px solid #c8c0ae;
   border-radius: 8px;
@@ -577,7 +730,13 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   top: calc(100% + 6px);
   left: 0;
   width: min(520px, max(100%, calc(100vw - 48px)));
-  max-height: min(420px, calc(100vh - var(--epr-header-height) - var(--epr-filter-control-height) - var(--epr-credits-height) - 92px));
+  max-height: min(
+    420px,
+    calc(
+      100vh - var(--epr-header-height) - var(--epr-filter-control-height) -
+        var(--epr-credits-height) - 92px
+    )
+  );
   overflow: auto;
   border: 1px solid #c8c0ae;
   border-radius: 8px;
@@ -716,8 +875,15 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   border-radius: 50%;
   border: 1px solid rgba(47, 95, 111, 0.14);
   background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0.98) 0 56%, transparent 57%),
-    conic-gradient(#2f5f6f var(--epr-loader-progress), rgba(47, 95, 111, 0.14) 0);
+    radial-gradient(
+      circle at center,
+      rgba(255, 255, 255, 0.98) 0 56%,
+      transparent 57%
+    ),
+    conic-gradient(
+      #2f5f6f var(--epr-loader-progress),
+      rgba(47, 95, 111, 0.14) 0
+    );
   box-shadow: 0 22px 50px rgba(53, 48, 37, 0.18);
 }
 
@@ -792,7 +958,15 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 }
 
 .epr-card {
+  position: relative;
   cursor: pointer;
+}
+
+.epr-card:hover,
+.epr-card:focus-within,
+.epr-card:has(.epr-calendar-event:hover),
+.epr-card:has(.epr-calendar-event:focus-within) {
+  z-index: 20;
 }
 
 .epr-card:focus-visible {
@@ -874,6 +1048,18 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   object-fit: contain;
   border: 1px solid #e5e0d4;
   background: #f7f5ef;
+}
+
+.epr-modal-body .epr-images {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+}
+
+.epr-modal-body .epr-images img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(72dvh, 900px);
 }
 
 .epr-links {
@@ -1000,7 +1186,7 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 .epr-gallery-frame img {
   display: block;
   width: 100%;
-  max-height: min(64vh, 680px);
+  max-height: min(72dvh, 900px);
   object-fit: contain;
 }
 
@@ -1122,17 +1308,13 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  display: grid;
-  grid-template-columns: 68px minmax(0, min(1180px, calc(100vw - 184px))) 68px;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 24px;
+  display: block;
+  padding: 0;
   pointer-events: auto;
 }
 
 .epr-modal-pdf {
-  grid-template-columns: 68px minmax(0, min(1600px, calc(100vw - 184px))) 68px;
+  display: block;
 }
 
 .epr-modal-backdrop {
@@ -1147,12 +1329,13 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   z-index: 1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: 100%;
-  max-height: min(86vh, 900px);
-  border: 1px solid #ded8c9;
-  border-radius: 8px;
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1177,10 +1360,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 .epr-modal-panel-pdf {
   display: flex;
   flex-direction: column;
-  justify-self: center;
-  width: 100%;
-  height: min(88vh, 980px);
-  max-height: min(88vh, 980px);
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
   background: white;
 }
 
@@ -1551,6 +1733,22 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
     box-shadow 160ms ease;
 }
 
+.epr-modal-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.epr-modal-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 18px;
+  border-right: 1px solid #ded8c9;
+}
+
 .epr-modal-close {
   flex: 0 0 auto;
   width: 44px;
@@ -1568,14 +1766,14 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 }
 
 .epr-modal-nav {
-  position: relative;
+  position: static;
   z-index: 1;
-  width: 58px;
-  height: 58px;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
 }
 
 .epr-modal-close:hover,
@@ -1617,7 +1815,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   }
 
   .epr-filters {
-    grid-template-columns: repeat(2, minmax(180px, 1fr)) repeat(2, minmax(140px, 0.8fr)) 48px;
+    grid-template-columns:
+      repeat(2, minmax(180px, 1fr)) repeat(2, minmax(140px, 0.8fr))
+      48px;
   }
 
   .epr-filters label:first-child {
@@ -1683,6 +1883,20 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
     display: none;
   }
 
+  .epr-calendar-event {
+    white-space: normal;
+  }
+
+  .epr-calendar-trigger {
+    opacity: 1;
+  }
+
+  .epr-calendar-menu {
+    left: 0;
+    max-width: min(260px, calc(100vw - 48px));
+    transform: none;
+  }
+
   .epr-filters {
     position: relative;
     top: auto;
@@ -1715,13 +1929,11 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   }
 
   .epr-modal {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
     padding: 10px;
   }
 
   .epr-modal-pdf {
-    grid-template-columns: minmax(0, 1fr);
+    display: block;
   }
 
   .epr-modal-panel-pdf {
@@ -1759,21 +1971,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
   }
 
   .epr-modal-nav {
-    position: fixed;
-    top: 50%;
-    z-index: 2;
     width: 42px;
     height: 42px;
     font-size: 1.65rem;
-    transform: translateY(-50%);
-  }
-
-  .epr-modal-prev {
-    left: 18px;
-  }
-
-  .epr-modal-next {
-    right: 18px;
   }
 
   .epr-gallery-frame {
@@ -1813,7 +2013,9 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
 
   .epr-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--epr-filter-control-height);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(
+        --epr-filter-control-height
+      );
     gap: 8px;
   }
 
@@ -1875,6 +2077,11 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
     height: clamp(180px, 62vw, 300px);
   }
 
+  .epr-modal-body .epr-images img {
+    height: auto;
+    max-height: 58dvh;
+  }
+
   .epr-youtube-viewer-compact {
     width: 100%;
   }
@@ -1929,7 +2136,7 @@ html.epr-reader-scroll-lock body::-webkit-scrollbar {
     padding: 12px 4px 12px 12px;
   }
 
-  .epr-modal-nav {
+  .epr-modal-nav-group {
     display: none;
   }
 

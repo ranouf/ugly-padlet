@@ -260,6 +260,146 @@ test("affiche le Padlet en liste verticale triee par date recente", async ({
   expect(titles).toContain("Garderie");
 });
 
+test("masque les publications sans contenu utilisees comme titres Padlet", async ({
+  page,
+}) => {
+  await page.route("**/ugly-padlet-test.html?separator=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Communications de l'equipe-ecole</h2>
+        </article>
+        </main>`,
+      ),
+    });
+  });
+  await openApp(page, `${pageUrl}?separator=1`);
+
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
+  await expect(page.locator(".epr-card")).toHaveCount(11);
+  await expect(page.locator("#elan-padlet-reader")).not.toContainText(
+    "Communications de l'equipe-ecole",
+  );
+});
+
+test("conserve les publications avec image meme sans texte", async ({
+  page,
+}) => {
+  await page.route("**/ugly-padlet-test.html?image-only=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Photo de classe</h2>
+          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'%3E%3Crect width='1200' height='800' fill='%232f5f6f'/%3E%3Ctext x='600' y='430' font-size='80' text-anchor='middle' fill='white'%3EPhoto%3C/text%3E%3C/svg%3E" alt="">
+        </article>
+        </main>`,
+      ),
+    });
+  });
+
+  await openApp(page, `${pageUrl}?image-only=1`, 12);
+  const card = page.locator(".epr-card", { hasText: "Photo de classe" });
+  await expect(card).toBeVisible();
+  await expect(card.locator(".epr-images img")).toHaveCount(1);
+  await openCard(page, "Photo de classe");
+  await expect(page.locator(".epr-modal .epr-images img")).toHaveCount(1);
+});
+
+test("propose l'ajout des dates detectees aux calendriers", async ({
+  page,
+}) => {
+  await page.route("**/ugly-padlet-test.html?calendar=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Horaires des sorties et activites</h2>
+          <p>lundi 7 septembre: Fete du travail</p>
+          <p>mercredi 16 septembre a 18h30: rencontre de la communaute</p>
+        </article>
+        </main>`,
+      ),
+    });
+  });
+  await openApp(page, `${pageUrl}?calendar=1`, 12);
+
+  const card = page.locator(".epr-card", {
+    hasText: "Horaires des sorties et activites",
+  });
+  await expect(card.locator(".epr-calendar-event")).toHaveCount(2);
+
+  const firstEvent = card.locator(".epr-calendar-event", {
+    hasText: "lundi 7 septembre",
+  });
+  await expect(firstEvent.locator(".epr-calendar-trigger")).toHaveAttribute(
+    "aria-label",
+    /Ajouter lundi 7 septembre a l'agenda/,
+  );
+  await expect(firstEvent.locator(".epr-calendar-separator")).toHaveText(":");
+  await expect(firstEvent.locator(".epr-icon-calendar-plus")).toHaveCount(1);
+  await expect(firstEvent).toHaveCSS("cursor", "pointer");
+  await expect(firstEvent.locator(".epr-calendar-menu")).toBeHidden();
+  await firstEvent.hover();
+  await expect(firstEvent.locator(".epr-calendar-trigger")).toBeVisible();
+  await expect(firstEvent.locator(".epr-calendar-menu")).toBeHidden();
+  await firstEvent.locator(".epr-calendar-trigger").click();
+  await expect(firstEvent.locator(".epr-calendar-trigger")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await expect(firstEvent.locator(".epr-calendar-menu")).toBeVisible();
+  await expect(firstEvent.locator(".epr-calendar-menu a")).toHaveText([
+    "Google Calendar",
+    "Outlook",
+    "Apple Calendar",
+    "Fichier .ics",
+  ]);
+  await expect(firstEvent.locator(".epr-calendar-menu .epr-icon")).toHaveCount(
+    4,
+  );
+  await expect(firstEvent.locator(".epr-icon-google")).toHaveCount(1);
+  await expect(firstEvent.locator(".epr-icon-microsoft")).toHaveCount(1);
+  await expect(firstEvent.locator(".epr-icon-apple")).toHaveCount(1);
+  await expect(firstEvent.locator(".epr-icon-calendar-event")).toHaveCount(1);
+  await expect(
+    firstEvent.locator(".epr-calendar-menu a", { hasText: "Google Calendar" }),
+  ).toHaveAttribute("href", /calendar\.google\.com\/calendar\/render/);
+  const popupPromise = page.waitForEvent("popup");
+  await firstEvent
+    .locator(".epr-calendar-menu a", { hasText: "Google Calendar" })
+    .click();
+  const popup = await popupPromise;
+  expect(popup.url()).toContain("calendar.google.com/calendar/render");
+  await popup.close();
+  await expect(
+    firstEvent.locator(".epr-calendar-menu a", { hasText: "Apple Calendar" }),
+  ).toHaveAttribute(
+    "download",
+    /horaires-des-sorties-et-activites-20250907\.ics/,
+  );
+
+  const timedEvent = card.locator(".epr-calendar-event", {
+    hasText: "mercredi 16 septembre",
+  });
+  await timedEvent.locator(".epr-calendar-trigger").click();
+  await expect(
+    timedEvent.locator(".epr-calendar-menu a", { hasText: "Outlook" }),
+  ).toHaveAttribute("href", /startdt=2025-09-16T/);
+});
 test("charge au demarrage toutes les communications lazy-load existantes", async ({
   page,
 }) => {
@@ -428,12 +568,18 @@ test("indique les publications nouvelles depuis la derniere connexion", async ({
   page,
 }) => {
   await seedPreviousConnection(page);
+  const recentDate = new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
   await openAppWithExtraPost(
     page,
     `
     <article class="post">
       <h2>Nouvelle publication de test</h2>
-      <p>mercredi 2 septembre 2026</p>
+      <p>${recentDate}</p>
       <p>Communication recente pour valider la pastille nouveau.</p>
     </article>
     <article class="post">
@@ -612,7 +758,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.26");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.28");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
@@ -1227,12 +1373,48 @@ test("affiche les PDF dans un viewer avec les informations de publication", asyn
 
   const frame = panel.locator("iframe");
   await expect(frame).toHaveAttribute("data-pdf-source", /\/wish\//);
-  const frameBox = await frame.boundingBox();
-  expect(frameBox.height).toBeGreaterThan(360);
+  await expect
+    .poll(async () => {
+      const box = await frame.boundingBox();
+      return box ? Math.round(box.height) : 0;
+    })
+    .toBeGreaterThan(360);
   await expect(panel).not.toContainText("130 / 196");
   await expect(panel).not.toContainText("Details Padlet");
 });
 
+test("affiche une image seule en grand dans le modal", async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 820 });
+  await page.route("**/ugly-padlet-test.html?single-image=1", async (route) => {
+    const response = await route.fetch();
+    const fixture = await response.text();
+    await route.fulfill({
+      response,
+      body: fixture.replace(
+        "</main>",
+        `
+        <article class="post">
+          <h2>Portrait grand format</h2>
+          <p>mardi 1 septembre 2026</p>
+          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1000'%3E%3Crect width='1200' height='1000' fill='%2347586a'/%3E%3Ctext x='600' y='530' font-size='92' text-anchor='middle' fill='white'%3EPortrait%3C/text%3E%3C/svg%3E" alt="">
+        </article>
+        </main>`,
+      ),
+    });
+  });
+  await openApp(page, `${pageUrl}?single-image=1`, 12);
+
+  const card = page.locator(".epr-card", { hasText: "Portrait grand format" });
+  const cardImageBox = await card.locator(".epr-images img").boundingBox();
+  expect(cardImageBox.height).toBeLessThanOrEqual(260);
+
+  await openCard(page, "Portrait grand format");
+  const modalImageBox = await page
+    .locator(".epr-modal-body .epr-images img")
+    .boundingBox();
+  expect(modalImageBox.height).toBeGreaterThan(500);
+  expect(modalImageBox.width).toBeGreaterThan(600);
+});
 test("affiche et navigue le carousel photo dans le modal", async ({ page }) => {
   await openApp(page);
   const card = page.locator(".epr-card", { hasText: "Album photos" });
