@@ -64,6 +64,14 @@ async function openApp(page, url = pageUrl, expectedCount = 11) {
   await expect(page.locator(".epr-card")).toHaveCount(expectedCount);
 }
 
+async function waitForBackgroundRefresh(page) {
+  await expect(page.locator('[data-action="rescan"]')).toHaveAttribute(
+    "aria-busy",
+    "false",
+    { timeout: 15000 },
+  );
+}
+
 async function mockPadletComments(page) {
   if (page.__uglyPadletCommentsMocked) return;
   page.__uglyPadletCommentsMocked = true;
@@ -1551,6 +1559,7 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
   page,
 }) => {
   await openApp(page);
+  await waitForBackgroundRefresh(page);
 
   const firstPass = await page
     .locator(".epr-section-badge")
@@ -1612,6 +1621,7 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
 
   await page.reload();
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
+  await waitForBackgroundRefresh(page);
 
   const secondPass = await page
     .locator(".epr-section-badge")
@@ -1805,21 +1815,25 @@ test("affiche une image seule en grand dans le modal", async ({ page }) => {
     });
   });
   await openApp(page, `${pageUrl}?single-image=1`, 12);
+  await waitForBackgroundRefresh(page);
 
   const card = page.locator(".epr-card", { hasText: "Portrait grand format" });
   const cardImage = card.locator(".epr-images img");
-  await expect(cardImage).toBeVisible();
-  const cardImageBox = await cardImage.boundingBox();
-  expect(cardImageBox).not.toBeNull();
-  expect(cardImageBox.height).toBeLessThanOrEqual(260);
+  await expect
+    .poll(async () => {
+      const box = await cardImage.boundingBox();
+      return Boolean(box && box.height <= 260);
+    })
+    .toBe(true);
 
   await openCard(page, "Portrait grand format");
   const modalImage = page.locator(".epr-modal-body .epr-images img");
-  await expect(modalImage).toBeVisible();
-  const modalImageBox = await modalImage.boundingBox();
-  expect(modalImageBox).not.toBeNull();
-  expect(modalImageBox.height).toBeGreaterThan(500);
-  expect(modalImageBox.width).toBeGreaterThan(600);
+  await expect
+    .poll(async () => {
+      const box = await modalImage.boundingBox();
+      return Boolean(box && box.height > 500 && box.width > 600);
+    })
+    .toBe(true);
 });
 test("affiche et navigue le carousel photo dans le modal", async ({ page }) => {
   await openApp(page);
