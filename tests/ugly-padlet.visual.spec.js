@@ -362,7 +362,11 @@ test("visuel - lecteur responsive laptop tablette et mobile sans debordement hor
       await expectIconCentered(page, ".epr-filter-toggle");
     }
     await expect(page.locator(".epr-card").first()).toBeVisible();
-    await captureVisual(page, `reader-${name}.png`);
+    await captureVisual(
+      page,
+      name === "mobile" ? "reader-mobile-viewport.png" : `reader-${name}.png`,
+      name === "mobile" ? { fullPage: false } : {},
+    );
   }
 });
 
