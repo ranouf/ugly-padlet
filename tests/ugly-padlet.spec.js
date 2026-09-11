@@ -1807,13 +1807,17 @@ test("affiche une image seule en grand dans le modal", async ({ page }) => {
   await openApp(page, `${pageUrl}?single-image=1`, 12);
 
   const card = page.locator(".epr-card", { hasText: "Portrait grand format" });
-  const cardImageBox = await card.locator(".epr-images img").boundingBox();
+  const cardImage = card.locator(".epr-images img");
+  await expect(cardImage).toBeVisible();
+  const cardImageBox = await cardImage.boundingBox();
+  expect(cardImageBox).not.toBeNull();
   expect(cardImageBox.height).toBeLessThanOrEqual(260);
 
   await openCard(page, "Portrait grand format");
-  const modalImageBox = await page
-    .locator(".epr-modal-body .epr-images img")
-    .boundingBox();
+  const modalImage = page.locator(".epr-modal-body .epr-images img");
+  await expect(modalImage).toBeVisible();
+  const modalImageBox = await modalImage.boundingBox();
+  expect(modalImageBox).not.toBeNull();
   expect(modalImageBox.height).toBeGreaterThan(500);
   expect(modalImageBox.width).toBeGreaterThan(600);
 });
