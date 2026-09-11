@@ -272,7 +272,16 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   expect(footerEdges.left).toBe(0);
   expect(footerEdges.rightGap).toBe(0);
 
-  const scrollbar = await page.locator(".epr-scrollbar").evaluate((node) => {
+  const scrollbarLocator = page.locator(".epr-scrollbar");
+  await expect(scrollbarLocator).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(() =>
+      scrollbarLocator.evaluate((node) =>
+        Math.round(node.getBoundingClientRect().width),
+      ),
+    )
+    .toBe(20);
+  const scrollbar = await scrollbarLocator.evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return {
       width: Math.round(rect.width),
