@@ -789,5 +789,8 @@ test("visuel - mode Padlet original et bouton retour lecteur", async ({
     0,
   );
   await expect(page.locator(".epr-header")).toBeVisible();
-  await captureVisual(page, "original-padlet-mode.png");
+  await captureVisual(page, "original-padlet-return-action.png", {
+    fullPage: false,
+    clip: { x: 930, y: 0, width: 350, height: 110 },
+  });
 });
