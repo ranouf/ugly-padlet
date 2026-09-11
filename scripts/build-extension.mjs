@@ -15,6 +15,7 @@ const zipPath = path.join(distRoot, `uglypadlet-${version}-chrome-store.zip`);
 const packageEntries = [
   "manifest.json",
   "content.js",
+  "update-monitor.js",
   "styles.css",
   "icons",
   "vendor",

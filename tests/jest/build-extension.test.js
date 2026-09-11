@@ -33,6 +33,13 @@ describe("Chrome extension package metadata", () => {
     ]);
   });
 
+  test("manifest registers the extension update monitor", () => {
+    const manifest = readManifest(root);
+
+    expect(manifest.permissions).toContain("storage");
+    expect(manifest.background.service_worker).toBe("update-monitor.js");
+  });
+
   test("remote content scripts are rejected by metadata validation", () => {
     expect(
       usesOnlyLocalScripts({

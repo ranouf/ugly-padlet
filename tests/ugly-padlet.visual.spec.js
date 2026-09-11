@@ -248,7 +248,7 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.28");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.29");
   const headerEdges = await page.locator(".epr-header").evaluate((header) => {
     const reader = document.querySelector("#elan-padlet-reader");
     const rect = header.getBoundingClientRect();
@@ -272,7 +272,16 @@ test("visuel - lecteur desktop complet avec filtres sticky, footer et scrollbar"
   expect(footerEdges.left).toBe(0);
   expect(footerEdges.rightGap).toBe(0);
 
-  const scrollbar = await page.locator(".epr-scrollbar").evaluate((node) => {
+  const scrollbarLocator = page.locator(".epr-scrollbar");
+  await expect(scrollbarLocator).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(() =>
+      scrollbarLocator.evaluate((node) =>
+        Math.round(node.getBoundingClientRect().width),
+      ),
+    )
+    .toBe(20);
+  const scrollbar = await scrollbarLocator.evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return {
       width: Math.round(rect.width),
@@ -305,16 +314,14 @@ test("visuel - les filtres sticky restent au-dessus des communications au scroll
     return {
       filtersTop: Math.round(rect.top),
       filtersZIndex: getComputedStyle(filters).zIndex,
-      cardZIndex: getComputedStyle(document.activeElement).zIndex,
+      cardZIndex: Number(getComputedStyle(document.activeElement).zIndex) || 0,
       topElementClass: element?.className || "",
       topElementInsideFilters: filters.contains(element),
     };
   });
 
   expect(stack.filtersTop).toBeGreaterThanOrEqual(0);
-  expect(Number(stack.filtersZIndex)).toBeGreaterThan(
-    Number(stack.cardZIndex || 0),
-  );
+  expect(Number(stack.filtersZIndex)).toBeGreaterThan(stack.cardZIndex);
   expect(stack.topElementInsideFilters).toBe(true);
   await captureVisual(page, "sticky-filters-above-cards.png", {
     fullPage: false,
@@ -362,7 +369,11 @@ test("visuel - lecteur responsive laptop tablette et mobile sans debordement hor
       await expectIconCentered(page, ".epr-filter-toggle");
     }
     await expect(page.locator(".epr-card").first()).toBeVisible();
-    await captureVisual(page, `reader-${name}.png`);
+    await captureVisual(
+      page,
+      name === "mobile" ? "reader-mobile-viewport.png" : `reader-${name}.png`,
+      name === "mobile" ? { fullPage: false } : {},
+    );
   }
 });
 
@@ -409,6 +420,58 @@ test("visuel - overlay de chargement des communications", async ({ page }) => {
   );
   await stabilizeVisuals(page);
   await captureVisual(page, "loading-overlay.png");
+});
+
+test("visuel - cache affiche pendant la progression du rafraichissement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openApp(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(localStorage.getItem("uglyPadlet:ecoleElan:posts:v5")),
+      ),
+    )
+    .toBe(true);
+
+  await page.goto(`${pageUrl}?lazy=1`);
+  const refresh = page.locator('[data-action="rescan"]');
+  await expect(page.locator(".epr-card").first()).toBeVisible();
+  await expect(refresh).toHaveAttribute("aria-busy", "false", {
+    timeout: 15000,
+  });
+  await page.waitForTimeout(1300);
+  await refresh.evaluate((node) => {
+    node.classList.remove("epr-refresh-complete");
+    node.classList.add("epr-refreshing");
+    node.style.setProperty("--epr-refresh-progress", "0%");
+    node.setAttribute("aria-busy", "true");
+  });
+  await expect(refresh).toHaveCSS("--epr-refresh-progress", "0%");
+  await refresh.screenshot({
+    path: test.info().outputPath("cached-reader-refresh-progress-0.png"),
+  });
+  await refresh.evaluate((node) => {
+    node.style.setProperty("--epr-refresh-progress", "42%");
+  });
+  await refresh.screenshot({
+    path: test.info().outputPath("cached-reader-refresh-progress-partial.png"),
+  });
+  await expect(page.locator("#elan-padlet-reader")).not.toHaveClass(
+    /epr-loading/,
+  );
+  await refresh.evaluate((node) => {
+    node.classList.remove("epr-refreshing");
+    node.classList.add("epr-refresh-complete");
+    node.style.setProperty("--epr-refresh-progress", "100%");
+    node.setAttribute("aria-busy", "false");
+  });
+  await expect(refresh).toHaveClass(/epr-refresh-complete/);
+  await expect(refresh).toHaveCSS("--epr-refresh-progress", "100%");
+  await refresh.screenshot({
+    path: test.info().outputPath("cached-reader-refresh-progress-100.png"),
+  });
 });
 
 test("visuel - dropdown communication et dropdown section multi-selection", async ({
@@ -718,13 +781,29 @@ test("visuel - mode Padlet original et bouton retour lecteur", async ({
   await page.setViewportSize({ width: 1280, height: 720 });
   await openApp(page);
 
-  await page.locator('[data-action="toggle-original"]').click();
+  const toggle = page.locator('[data-action="toggle-original"]');
+  await expect(toggle.locator(".epr-padlet-icon")).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-label", "Voir le Padlet original");
+  await captureVisual(page, "reader-padlet-icon-action.png", {
+    clip: { x: 890, y: 0, width: 390, height: 110 },
+  });
+  const readerPosition = await toggle.boundingBox();
+  await toggle.click();
   await expect(page.locator("#elan-padlet-reader")).toHaveClass(
     /epr-minimized/,
   );
-  await expect(page.locator('[data-action="toggle-original"]')).toHaveText(
-    "Revenir au lecteur",
+  await expect(toggle).toHaveText("Revenir au lecteur");
+  await expect(toggle.locator(".bi-arrow-left")).toBeVisible();
+  await expect(page.locator('[data-action="open-newsletter"]')).toBeHidden();
+  const originalPosition = await toggle.boundingBox();
+  expect(originalPosition.y).toBeCloseTo(readerPosition.y, 0);
+  expect(1280 - originalPosition.x - originalPosition.width).toBeCloseTo(
+    1280 - readerPosition.x - readerPosition.width,
+    0,
   );
   await expect(page.locator(".epr-header")).toBeVisible();
-  await captureVisual(page, "original-padlet-mode.png");
+  await captureVisual(page, "original-padlet-return-action.png", {
+    fullPage: false,
+    clip: { x: 930, y: 0, width: 350, height: 110 },
+  });
 });

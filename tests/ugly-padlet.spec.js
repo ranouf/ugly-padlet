@@ -7,6 +7,7 @@ const pageUrl = "/ugly-padlet-test.html";
 async function clearUglyPadletStorage(page) {
   await page.goto(pageUrl);
   await page.evaluate(() => localStorage.clear());
+  await page.goto("about:blank");
 }
 
 async function seedPreviousConnection(page, daysAgo = 6) {
@@ -61,6 +62,14 @@ async function openApp(page, url = pageUrl, expectedCount = 11) {
   await page.goto(url);
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
   await expect(page.locator(".epr-card")).toHaveCount(expectedCount);
+}
+
+async function waitForBackgroundRefresh(page) {
+  await expect(page.locator('[data-action="rescan"]')).toHaveAttribute(
+    "aria-busy",
+    "false",
+    { timeout: 15000 },
+  );
 }
 
 async function mockPadletComments(page) {
@@ -260,6 +269,312 @@ test("affiche le Padlet en liste verticale triee par date recente", async ({
   expect(titles).toContain("Garderie");
 });
 
+test("affiche les actions newsletter et actualisation dans l'entete", async ({
+  page,
+}) => {
+  await openApp(page);
+
+  const refresh = page.locator('[data-action="rescan"]');
+  await expect(refresh).toHaveAttribute(
+    "aria-label",
+    "Actualiser les communications",
+  );
+  await expect(refresh.locator(".bi-arrow-counterclockwise")).toBeVisible();
+
+  const newsletter = page.locator('[data-action="open-newsletter"]');
+  await expect(newsletter).toHaveAttribute(
+    "href",
+    /https:\/\/padlet\.com\/auth\/signup\?referrer=http%3A%2F%2F127\.0\.0\.1%3A4173%2Fugly-padlet-test\.html/,
+  );
+  await expect(newsletter.locator(".bi-bell-plus")).toBeVisible();
+
+  const padlet = page.locator('[data-action="toggle-original"]');
+  await expect(padlet).toHaveAttribute("aria-label", "Voir le Padlet original");
+  await expect(padlet.locator(".epr-padlet-icon")).toBeVisible();
+  await expect(padlet.locator(".epr-padlet-icon")).toHaveCSS(
+    "background-image",
+    /data:image\/png;base64/,
+  );
+  await expect(padlet).toHaveText("");
+});
+
+test("indique lorsqu une nouvelle version de l extension est disponible", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.chrome = {
+      runtime: {
+        getManifest: () => ({ version: "2.0.29" }),
+      },
+      storage: {
+        local: {
+          get: (_key, callback) => {
+            callback({});
+          },
+        },
+        onChanged: {
+          addListener: (listener) => {
+            window.__uglyPadletUpdateListener = listener;
+          },
+        },
+      },
+    };
+  });
+  await openApp(page);
+
+  const indicator = page.locator(".epr-update-available");
+  await expect(indicator).toBeHidden();
+  await page.evaluate(() => {
+    window.__uglyPadletUpdateListener(
+      {
+        uglyPadletUpdateAvailable: {
+          newValue: { version: "2.0.30" },
+        },
+      },
+      "local",
+    );
+  });
+  await expect(indicator).toBeVisible();
+  await expect(indicator).toHaveAttribute(
+    "title",
+    /Une nouvelle version d'UglyPadlet \(v2\.0\.30\) est disponible/,
+  );
+  await expect(indicator.locator(".bi-arrow-up-circle")).toBeVisible();
+});
+
+test("affiche le cache immediatement puis actualise en arriere-plan", async ({
+  page,
+}) => {
+  await openApp(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(localStorage.getItem("uglyPadlet:ecoleElan:posts:v5")),
+      ),
+    )
+    .toBe(true);
+
+  await page.addInitScript(() => {
+    const observedProgress = new Set();
+    const observer = new MutationObserver(() => {
+      const refresh = document.querySelector('[data-action="rescan"]');
+      if (
+        refresh?.getAttribute("aria-busy") === "true" &&
+        document.documentElement.dataset.refreshObserved !== "true"
+      ) {
+        document.documentElement.dataset.refreshObserved = "true";
+      }
+      const progress = Number.parseFloat(
+        refresh?.style.getPropertyValue("--epr-refresh-progress") || "0",
+      );
+      if (
+        progress > 0 &&
+        progress < 100 &&
+        document.documentElement.dataset.refreshProgressObserved !== "true"
+      ) {
+        document.documentElement.dataset.refreshProgressObserved = "true";
+      }
+      if (progress > 0 && progress < 100) {
+        observedProgress.add(Math.round(progress));
+        const steps = String(observedProgress.size);
+        if (document.documentElement.dataset.refreshProgressSteps !== steps) {
+          document.documentElement.dataset.refreshProgressSteps = steps;
+        }
+      }
+      if (
+        progress === 100 &&
+        refresh?.classList.contains("epr-refresh-complete") &&
+        document.documentElement.dataset.refreshCompletionObserved !== "true"
+      ) {
+        document.documentElement.dataset.refreshCompletionObserved = "true";
+      }
+    });
+    observer.observe(document, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+  });
+
+  await page.reload();
+
+  await expect(page.locator(".epr-card")).toHaveCount(11);
+  await expect(page.locator(".epr-summary")).toContainText("11 communications");
+  await expect(page.locator(".epr-summary")).not.toContainText(
+    "Depuis le cache",
+  );
+  await expect(page.locator("#elan-padlet-reader")).not.toHaveClass(
+    /epr-boot-loading/,
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-refresh-observed",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-refresh-progress-observed",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-refresh-completion-observed",
+    "true",
+  );
+  expect(
+    await page
+      .locator("html")
+      .evaluate((node) => Number(node.dataset.refreshProgressSteps || 0)),
+  ).toBeGreaterThan(4);
+});
+
+test("ignore un cache provenant du DOM qui contient une date incorrecte", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const staleDate = "2027-04-21T04:00:00.000Z";
+    localStorage.setItem(
+      "uglyPadlet:ecoleElan:posts:v5",
+      JSON.stringify({
+        source: "dom",
+        savedAt: new Date().toISOString(),
+        posts: [
+          {
+            id: "stale-dom-post",
+            index: 0,
+            title: "Communication erronée du 21 avril",
+            text: "Communication erronée du 21 avril",
+            isSeparator: false,
+            section: "Non classée",
+            date: staleDate,
+            dates: [staleDate],
+            dateKey: "2027-4-21",
+            publishedAt: staleDate,
+            links: [],
+            images: [],
+          },
+        ],
+      }),
+    );
+  });
+
+  await openApp(page);
+
+  await expect(
+    page.locator(".epr-card", {
+      hasText: "Communication erronée du 21 avril",
+    }),
+  ).toHaveCount(0);
+  await expect(page.locator(".epr-card")).toHaveCount(11);
+});
+
+test("ne melange pas une date DOM au cache API pendant la synchronisation", async ({
+  page,
+}) => {
+  const fixture = fs.readFileSync(
+    path.join(__dirname, "..", "ugly-padlet-test.html"),
+    "utf8",
+  );
+  const publishedAt = "2026-04-21T00:09:18.720Z";
+
+  await page.addInitScript(
+    ({ cacheKey, publicationDate }) => {
+      window.__uglyPadletStartingState = {
+        wall: { is_commentable: false },
+      };
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          source: "api",
+          savedAt: new Date().toISOString(),
+          posts: [
+            {
+              id: "padlet-post_MxrmZYBxKArLWGOq",
+              index: 0,
+              title: "Rappel",
+              text: "Rappel\n\nJournée tapis rouge demain, 21 avril.",
+              isSeparator: false,
+              section: "École",
+              urlSlug: "MxrmZYBxKArLWGOq",
+              date: "2026-04-20T04:00:00.000Z",
+              dates: ["2027-04-21T04:00:00.000Z"],
+              dateKey: "2026-4-21",
+              publishedAt: publicationDate,
+              links: [],
+              images: [],
+            },
+          ],
+        }),
+      );
+    },
+    {
+      cacheKey: "uglyPadlet:ecoleElan:posts:v5",
+      publicationDate: publishedAt,
+    },
+  );
+
+  await page.route(
+    "**/ugly-padlet-test.html?api-test=transient-date",
+    (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        body: fixture
+          .replace("<body>", '<body data-wall="board_DateSorting123">')
+          .replace(
+            "</main>",
+            `<article class="post">
+              <h2>Rappel</h2>
+              <p>Journée tapis rouge demain, 21 avril.</p>
+            </article>
+            </main>`,
+          ),
+      });
+    },
+  );
+  await page.route("https://padlet.com/api/10/wishes**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:4173",
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        data: [
+          {
+            id: "3876314215",
+            attributes: {
+              id: 3876314215,
+              hashid: "post_MxrmZYBxKArLWGOq",
+              subject: "Rappel",
+              body: "Journée tapis rouge demain, 21 avril.",
+              published_at: publishedAt,
+              created_at: publishedAt,
+            },
+          },
+        ],
+        meta: { next: null },
+      }),
+    });
+  });
+
+  await page.goto(`${pageUrl}?api-test=transient-date`);
+  await expect(page.locator(".epr-summary")).toHaveText("1 communication.");
+  await expect(page.locator(".epr-summary")).not.toContainText(
+    /Recherche|Chargement|cache|publication trouvée/i,
+  );
+  await page.waitForTimeout(900);
+
+  const card = page.locator(".epr-card", { hasText: "Rappel" });
+  await expect(card).toHaveCount(1);
+  await expect(card.locator(".epr-date-badge")).toContainText(
+    "lundi 20 avril 2026",
+  );
+  await expect(page.locator("#elan-padlet-reader")).toHaveAttribute(
+    "data-load-source",
+    "api",
+  );
+});
+
 test("masque les publications sans contenu utilisees comme titres Padlet", async ({
   page,
 }) => {
@@ -429,6 +744,102 @@ test("charge au demarrage toutes les communications lazy-load existantes", async
     "Cantine - Menu special",
     "Calendrier scolaire 2025-2026",
   ]);
+});
+
+test("affiche une progression graduelle pendant le chargement API initial", async ({
+  page,
+}) => {
+  const fixture = fs.readFileSync(
+    path.join(__dirname, "..", "ugly-padlet-test.html"),
+    "utf8",
+  );
+
+  await page.addInitScript(() => {
+    window.__uglyPadletStartingState = {
+      wall: { is_commentable: false },
+    };
+    const observed = new Set();
+    const observer = new MutationObserver(() => {
+      const value = Number.parseInt(
+        document.querySelector(".epr-loader-percent")?.textContent || "",
+        10,
+      );
+      if (value > 0 && value < 100) {
+        observed.add(value);
+        document.documentElement.dataset.apiProgressSteps = String(
+          observed.size,
+        );
+      }
+      if (value === 100) {
+        document.documentElement.dataset.apiProgressComplete = "true";
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
+  await page.route("**/ugly-padlet-test.html?api-test=progress", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: fixture.replace("<body>", '<body data-wall="board_Progress123">'),
+    });
+  });
+  await page.route("https://padlet.com/api/10/wishes**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:4173",
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        data: [
+          {
+            id: "progress-post",
+            attributes: {
+              id: 1,
+              hashid: "post_progress",
+              subject: "Publication chargée progressivement",
+              body: "Contenu reçu depuis l'API Padlet.",
+              published_at: "2026-09-10T12:00:00.000Z",
+            },
+          },
+        ],
+        meta: { next: null },
+      }),
+    });
+  });
+  await page.route("https://padlet.com/api/5/wall_sections**", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      body: JSON.stringify({ data: [] }),
+    });
+  });
+
+  await page.goto(`${pageUrl}?api-test=progress`);
+  await expect(page.locator(".epr-loader")).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".epr-loader-percent")
+        .evaluate((node) => Number.parseInt(node.textContent || "", 10)),
+    )
+    .toBeGreaterThan(8);
+  await expect(page.locator("#elan-padlet-reader")).toHaveAttribute(
+    "data-load-source",
+    "api",
+  );
+  expect(
+    await page
+      .locator("html")
+      .evaluate((node) => Number(node.dataset.apiProgressSteps || 0)),
+  ).toBeGreaterThan(4);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-api-progress-complete",
+    "true",
+  );
+  await expect(page.locator(".epr-loader")).toBeHidden();
 });
 
 test("filtre par recherche, type, section et periode, puis conserve les filtres", async ({
@@ -758,7 +1169,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.28");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.29");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
@@ -860,17 +1271,16 @@ test("laisse le Padlet original cliquable quand le lecteur est masque", async ({
   await expect(page.locator("#elan-padlet-reader")).toHaveClass(
     /epr-minimized/,
   );
+  await expect(
+    page.locator('[data-action="toggle-original"] .bi-arrow-left'),
+  ).toBeVisible();
+  await expect(page.locator('[data-action="toggle-original"]')).toContainText(
+    "Revenir au lecteur",
+  );
+  await expect(page.locator('[data-action="open-newsletter"]')).toBeHidden();
   await expect(page.locator(".epr-hit-surface")).toBeHidden();
 
-  const originalPostBox = await page
-    .locator("main article")
-    .first()
-    .boundingBox();
-  expect(originalPostBox).toBeTruthy();
-  await page.mouse.click(
-    originalPostBox.x + originalPostBox.width / 2,
-    originalPostBox.y + originalPostBox.height / 2,
-  );
+  await page.locator("main article").first().click();
 
   await expect(page.locator("body")).toHaveAttribute(
     "data-original-post-clicked",
@@ -1149,6 +1559,7 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
   page,
 }) => {
   await openApp(page);
+  await waitForBackgroundRefresh(page);
 
   const firstPass = await page
     .locator(".epr-section-badge")
@@ -1210,6 +1621,7 @@ test("attribue aux sections des couleurs stables et lisibles", async ({
 
   await page.reload();
   await expect(page.locator("#elan-padlet-reader")).toBeVisible();
+  await waitForBackgroundRefresh(page);
 
   const secondPass = await page
     .locator(".epr-section-badge")
@@ -1403,17 +1815,25 @@ test("affiche une image seule en grand dans le modal", async ({ page }) => {
     });
   });
   await openApp(page, `${pageUrl}?single-image=1`, 12);
+  await waitForBackgroundRefresh(page);
 
   const card = page.locator(".epr-card", { hasText: "Portrait grand format" });
-  const cardImageBox = await card.locator(".epr-images img").boundingBox();
-  expect(cardImageBox.height).toBeLessThanOrEqual(260);
+  const cardImage = card.locator(".epr-images img");
+  await expect
+    .poll(async () => {
+      const box = await cardImage.boundingBox();
+      return Boolean(box && box.height <= 260);
+    })
+    .toBe(true);
 
   await openCard(page, "Portrait grand format");
-  const modalImageBox = await page
-    .locator(".epr-modal-body .epr-images img")
-    .boundingBox();
-  expect(modalImageBox.height).toBeGreaterThan(500);
-  expect(modalImageBox.width).toBeGreaterThan(600);
+  const modalImage = page.locator(".epr-modal-body .epr-images img");
+  await expect
+    .poll(async () => {
+      const box = await modalImage.boundingBox();
+      return Boolean(box && box.height > 500 && box.width > 600);
+    })
+    .toBe(true);
 });
 test("affiche et navigue le carousel photo dans le modal", async ({ page }) => {
   await openApp(page);
@@ -1447,4 +1867,175 @@ test("ignore les gros conteneurs fusionnes et le chrome Padlet", async ({
     }),
   ).toHaveCount(0);
   await expect(page.locator(".epr-card")).toHaveCount(11);
+});
+
+test("remplace les dates du cache par les dates de publication de l API", async ({
+  page,
+}) => {
+  const fixture = fs.readFileSync(
+    path.join(__dirname, "..", "ugly-padlet-test.html"),
+    "utf8",
+  );
+  const staleDate = "2027-06-30T04:00:00.000Z";
+
+  await page.addInitScript(
+    ({ cacheKey, date }) => {
+      window.__uglyPadletStartingState = {
+        wall: { is_commentable: false },
+      };
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          source: "api",
+          savedAt: new Date().toISOString(),
+          posts: [
+            {
+              id: "stale-mot-direction",
+              index: 0,
+              title: "Mot de la direction 31 août",
+              text: "Mot de la direction 31 août",
+              isSeparator: false,
+              section: "Communications de la direction",
+              urlSlug: "MxrmZYBxKArLWGOq",
+              date,
+              dates: [date],
+              dateKey: "2027-6-30",
+              publishedAt: date,
+              links: [],
+              images: [],
+            },
+          ],
+        }),
+      );
+    },
+    {
+      cacheKey: "uglyPadlet:ecoleElan:posts:v5",
+      date: staleDate,
+    },
+  );
+
+  await page.route("**/ugly-padlet-test.html?api-test=1", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: fixture.replace(
+        "<body>",
+        '<body data-wall="board_DateSorting123">',
+      ),
+    });
+  });
+  await page.route("https://padlet.com/api/10/wishes**", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:4173",
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        data: [
+          {
+            id: "6",
+            attributes: {
+              id: 6,
+              hashid: "post_recent_earlier",
+              subject: "Publication récente plus tôt",
+              body: "Information publiée plus tôt le même jour",
+              published_at: "2026-09-08T15:00:00.000Z",
+              created_at: "2026-09-08T15:00:00.000Z",
+              updated_at: "2026-09-10T19:00:00.000Z",
+            },
+          },
+          {
+            id: "4",
+            attributes: {
+              id: 4,
+              hashid: "post_recent",
+              subject: "Publication récente",
+              body: "Information récente",
+              published_at: "2026-09-08T16:37:44.776Z",
+              created_at: "2026-09-08T15:46:00.609Z",
+              updated_at: "2026-09-08T16:37:44.779Z",
+            },
+          },
+          {
+            id: "3",
+            attributes: {
+              id: 3,
+              hashid: "post_middle",
+              subject: "Publication intermédiaire",
+              body: "Information intermédiaire",
+              published_at: "2026-09-04T22:21:52.152Z",
+              created_at: "2026-09-04T22:21:52.152Z",
+              updated_at: "2026-09-10T14:28:18.087Z",
+            },
+          },
+          {
+            id: "5",
+            attributes: {
+              id: 5,
+              hashid: "post_created_fallback",
+              subject: "Publication sans date de publication",
+              body: "La date de création sert de repli",
+              created_at: "2026-09-03T12:00:00.000Z",
+              updated_at: "2026-09-10T18:00:00.000Z",
+            },
+          },
+          {
+            id: "2",
+            attributes: {
+              id: 2,
+              hashid: "post_MxrmZYe9zMEdZGOq",
+              subject: "Mot de la direction 31 août",
+              body: "Communication publiée en septembre 2026",
+              published_at: "2026-09-02T15:51:58.605Z",
+              created_at: "2026-09-02T15:51:58.626Z",
+              updated_at: "2026-09-10T14:32:42.169Z",
+            },
+          },
+          {
+            id: "1",
+            attributes: {
+              id: 1,
+              hashid: "post_old_updated",
+              subject: "Ancienne publication modifiée",
+              body: "Cette publication reste ancienne malgré sa modification",
+              published_at: "2025-11-26T14:04:29.380Z",
+              created_at: "2025-11-26T14:04:29.380Z",
+              updated_at: "2026-09-10T17:43:38.191Z",
+            },
+          },
+        ],
+        meta: { next: null },
+      }),
+    });
+  });
+
+  await page.goto(`${pageUrl}?api-test=1`);
+  await expect(page.locator("#elan-padlet-reader")).toHaveAttribute(
+    "data-load-source",
+    "api",
+  );
+  await expect(page.locator(".epr-card")).toHaveCount(6);
+  await expect(page.locator(".epr-card h2")).toHaveText([
+    "Publication récente",
+    "Publication récente plus tôt",
+    "Publication intermédiaire",
+    "Publication sans date de publication",
+    "Mot de la direction 31 août",
+    "Ancienne publication modifiée",
+  ]);
+  await expect(
+    page.locator(".epr-card", { hasText: "Mot de la direction 31 août" }),
+  ).toContainText("mercredi 2 septembre 2026");
+
+  const cachedDate = await page.evaluate(() => {
+    const cached = JSON.parse(
+      localStorage.getItem("uglyPadlet:ecoleElan:posts:v5"),
+    );
+    return cached.posts.find(
+      (post) => post.title === "Mot de la direction 31 août",
+    )?.publishedAt;
+  });
+  expect(cachedDate).toBe("2026-09-02T15:51:58.605Z");
 });

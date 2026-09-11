@@ -1,8 +1,9 @@
 (() => {
   const APP_ID = "elan-padlet-reader";
   const TEST_PAGE = "ugly-padlet-test.html";
-  const CACHE_ENABLED = false;
-  const APP_VERSION = getExtensionVersion("2.0.28");
+  const CACHE_ENABLED = true;
+  const APP_VERSION = getExtensionVersion("2.0.29");
+  const UPDATE_STORAGE_KEY = "uglyPadletUpdateAvailable";
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
     ["upcoming", "A venir"],
@@ -96,7 +97,7 @@
   const BOARD_PATH =
     testBoardPath || (isTestPage ? location.pathname : getCurrentBoardPath());
   const STORAGE_SCOPE = getBoardStorageScope(BOARD_PATH, isTestPage);
-  const CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:posts:v3`;
+  const CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:posts:v5`;
   const FILTER_CACHE_KEY = `uglyPadlet:${STORAGE_SCOPE}:filters:v1`;
   const CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:lastConnectionDate:v1`;
   const CURRENT_CONNECTION_DATE_KEY = `uglyPadlet:${STORAGE_SCOPE}:currentConnectionDate:v1`;
@@ -154,6 +155,7 @@
   const pdfResolverCache = new Map();
 
   const root = document.createElement("div");
+  const newsletterSignupUrl = `https://padlet.com/auth/signup?referrer=${encodeURIComponent(`${location.origin}${BOARD_PATH}`)}`;
   root.id = APP_ID;
   root.dataset.wallCommentable = String(state.isWallCommentable);
   applyOriginalBackground(root);
@@ -166,8 +168,15 @@
           <h1>${escapeHtml(padletTitle)}</h1>
         </div>
         <div class="epr-actions">
-          <button type="button" data-action="rescan">Actualiser</button>
-          <button type="button" data-action="toggle-original" aria-pressed="false">Voir Padlet</button>
+          <button type="button" class="epr-icon-action epr-refresh-action" data-action="rescan" aria-label="Actualiser les communications" title="Actualiser les communications">
+            ${renderIcon("arrow-counterclockwise")}
+          </button>
+          <a class="epr-icon-action epr-newsletter-action" href="${escapeHtml(newsletterSignupUrl)}" data-action="open-newsletter" aria-label="S'inscrire a la newsletter du Padlet" title="S'inscrire a la newsletter du Padlet">
+            ${renderIcon("bell-plus")}
+          </a>
+          <button type="button" class="epr-icon-action epr-padlet-action" data-action="toggle-original" aria-label="Voir le Padlet original" title="Voir le Padlet original" aria-pressed="false">
+            <span class="epr-padlet-icon" aria-hidden="true"></span>
+          </button>
           <button type="button" class="epr-filter-toggle" data-action="toggle-filter-panel" aria-expanded="false" aria-controls="epr-filter-fields">
             ${renderIcon("filter")}
             <span class="epr-filter-count" hidden>0</span>
@@ -248,7 +257,12 @@
 
       <footer class="epr-credits" aria-label="Contact">
         <a href="mailto:uglypadlet@carnould.com">Suggestion ou bug : uglypadlet@carnould.com</a>
-        <span class="epr-version" aria-label="Version de l'extension">UglyPadlet v${escapeHtml(APP_VERSION)}</span>
+        <span class="epr-version-group">
+          <span class="epr-version" aria-label="Version de l'extension">UglyPadlet v${escapeHtml(APP_VERSION)}</span>
+          <span class="epr-update-available" role="status" tabindex="0" hidden>
+            ${renderIcon("arrow-up-circle")}
+          </span>
+        </span>
       </footer>
       <div class="epr-scrollbar" data-custom-scrollbar aria-hidden="true" hidden>
         <div class="epr-scrollbar-thumb" data-custom-scrollbar-thumb></div>
@@ -276,18 +290,22 @@
     filterToggle: root.querySelector(".epr-filter-toggle"),
     filterCount: root.querySelector(".epr-filter-count"),
     filterFields: root.querySelector(".epr-filter-fields"),
+    rescan: root.querySelector('[data-action="rescan"]'),
     toggle: root.querySelector('[data-action="toggle-original"]'),
     customScrollbar: root.querySelector("[data-custom-scrollbar]"),
     customScrollbarThumb: root.querySelector("[data-custom-scrollbar-thumb]"),
   };
   let scrollbarUpdateFrame = 0;
   let scrollbarDrag = null;
+  let refreshCompletionTimer = 0;
+  let refreshProgressFrame = 0;
+  let displayedRefreshProgress = 0;
 
-  showInitialLoader();
   whenBodyReady().then(initializeReader);
 
   function initializeReader() {
     restoreFilters();
+    initializeUpdateIndicator();
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
         restoreFilters();
@@ -316,7 +334,7 @@
       if (!event.target.closest("[data-section-filter]")) closeSectionMenu();
       if (!event.target.closest("[data-status-filter]")) closeStatusMenu();
       if (!event.target.closest(".epr-calendar-event")) closeCalendarMenus();
-      if (action === "rescan") startFullLoad({ reset: true });
+      if (action === "rescan") startFullLoad();
       if (action === "toggle-original") toggleOriginal();
       if (action === "toggle-filter-panel") toggleFilterPanel();
       if (action === "reset-filters") resetFilters();
@@ -427,19 +445,6 @@
     }
   }
 
-  function showInitialLoader() {
-    root.classList.add("epr-loading", "epr-boot-loading");
-    state.loadMessage = "Chargement complet du Padlet...";
-    updateLoadProgress({
-      found: 0,
-      total: 0,
-      percent: 0,
-      round: 0,
-      maxRounds: 0,
-      stableRounds: 0,
-    });
-  }
-
   function whenBodyReady() {
     if (document.body) return Promise.resolve();
     return new Promise((resolve) => {
@@ -453,7 +458,7 @@
   }
 
   function scanAndRender(force) {
-    if (state.loadedFromApi && !state.isCheckingRecent) return;
+    if (state.loadedFromApi) return;
     const posts = extractPosts();
     const signature = posts
       .map((post) => `${post.title}|${post.text.length}|${post.dateKey}`)
@@ -473,6 +478,7 @@
 
   async function startFullLoad({ reset = false } = {}) {
     if (state.isLoadingAll) return;
+    const startedWithoutPosts = state.posts.length === 0;
     if (reset) {
       state.postMap.clear();
       state.posts = [];
@@ -483,7 +489,8 @@
     }
 
     state.isLoadingAll = true;
-    root.classList.add("epr-loading");
+    root.classList.toggle("epr-loading", state.posts.length === 0);
+    syncRefreshControl();
     state.loadMessage = "Chargement complet du Padlet...";
     updateLoadProgress({
       found: 0,
@@ -498,14 +505,16 @@
     try {
       await loadAllPadletPosts();
     } finally {
-      state.isLoadingAll = false;
-      root.classList.remove("epr-loading");
       state.loadMessage = "";
       updateLoadProgress({
         found: state.posts.length,
         total: Math.max(state.loadProgress.total || 0, state.posts.length),
         percent: 100,
       });
+      if (startedWithoutPosts) await wait(220);
+      state.isLoadingAll = false;
+      root.classList.remove("epr-loading");
+      syncRefreshControl();
       if (state.loadedFromApi) {
         render();
         openPendingModalFromUrl();
@@ -522,13 +531,31 @@
 
     state.isCheckingRecent = true;
     state.loadMessage = "Recherche des nouvelles publications...";
+    updateLoadProgress({
+      found: state.posts.length,
+      total: 0,
+      percent: 0,
+      round: 0,
+      maxRounds: 0,
+      stableRounds: 0,
+    });
+    syncRefreshControl();
     render();
 
     try {
-      await loadRecentPadletPosts(state.cachedLatestDate);
+      const refreshedFromApi = await loadAllPadletPostsFromApi();
+      if (!refreshedFromApi) {
+        await loadRecentPadletPosts(state.cachedLatestDate);
+      }
     } finally {
-      state.isCheckingRecent = false;
       state.loadMessage = "";
+      updateLoadProgress({
+        found: state.posts.length,
+        total: state.posts.length,
+        percent: 100,
+      });
+      state.isCheckingRecent = false;
+      syncRefreshControl();
       state.posts = finalizePosts([...state.postMap.values()]).sort(
         comparePosts,
       );
@@ -616,6 +643,13 @@
         comparePosts,
       );
       updateSections();
+      updateLoadProgress({
+        found: state.posts.length,
+        total: 0,
+        round: 1,
+        maxRounds,
+        stableRounds,
+      });
       render();
 
       for (let round = 0; round < maxRounds; round += 1) {
@@ -637,6 +671,14 @@
           lastCount = state.posts.length;
         }
 
+        updateLoadProgress({
+          found: state.posts.length,
+          total: 0,
+          round: round + 1,
+          maxRounds,
+          stableRounds,
+        });
+
         if (!moved && stableRounds >= 2) break;
         if (stableRounds >= 3) break;
       }
@@ -649,17 +691,24 @@
   async function loadAllPadletPostsFromApi() {
     root.dataset.loadSource = "api-pending";
     root.dataset.apiError = "";
-    if (location.href.includes(TEST_PAGE)) return false;
+    updateLoadProgress({ percent: 3 });
+    if (
+      location.href.includes(TEST_PAGE) &&
+      !new URLSearchParams(location.search).has("api-test")
+    )
+      return false;
 
     const wallHashid = await waitForPadletWallHashid();
+    updateLoadProgress({ percent: 8 });
     root.dataset.wallHashid = wallHashid;
     if (!wallHashid) {
+      state.loadedFromApi = false;
       root.dataset.loadSource = "dom";
       root.dataset.apiError = "wall_hashid not found";
       return false;
     }
 
-    await loadPadletStartingState();
+    await withLoadProgressPulse(() => loadPadletStartingState(), 8, 18);
 
     try {
       const wishes = [];
@@ -668,10 +717,16 @@
 
       for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
         const url = `https://padlet.com/api/10/wishes?wall_hashid=${encodeURIComponent(wallHashid)}&page_start=${encodeURIComponent(pageStart)}&v=`;
-        const response = await fetch(url, { credentials: "include" });
-        if (!response.ok)
-          throw new Error(`Padlet wishes API ${response.status}`);
-        const payload = await response.json();
+        const payload = await withLoadProgressPulse(
+          async () => {
+            const response = await fetch(url, { credentials: "include" });
+            if (!response.ok)
+              throw new Error(`Padlet wishes API ${response.status}`);
+            return response.json();
+          },
+          Math.max(18, state.loadProgress.percent),
+          82,
+        );
         const pageWishes = Array.isArray(payload.data) ? payload.data : [];
         wishes.push(...pageWishes);
         wallId ||=
@@ -679,26 +734,47 @@
             ?.wall_id || "";
 
         state.loadMessage = `Chargement API Padlet... ${wishes.length} publication${wishes.length > 1 ? "s" : ""} trouvee${wishes.length > 1 ? "s" : ""}`;
+        pageStart = payload.meta?.next || "";
         updateLoadProgress({
           found: wishes.length,
           total: Math.max(state.loadProgress.total || 0, wishes.length),
+          percent: pageStart
+            ? Math.max(
+                state.loadProgress.percent || 0,
+                Math.min(90, 84 + pageIndex),
+              )
+            : 90,
           round: pageIndex + 1,
           maxRounds: 0,
           stableRounds: 0,
         });
         render();
 
-        pageStart = payload.meta?.next || "";
         if (!pageStart) break;
       }
 
-      if (!wishes.length) return false;
+      if (!wishes.length) {
+        state.loadedFromApi = false;
+        return false;
+      }
 
-      const sectionMap = await fetchPadletSectionMap(wallId);
+      const sectionMap = await withLoadProgressPulse(
+        () => fetchPadletSectionMap(wallId),
+        90,
+        94,
+      );
       const posts = wishes
         .map((wish, index) => apiWishToPost(wish, sectionMap, index))
         .filter(Boolean);
-      if (!posts.length) return false;
+      updateLoadProgress({
+        found: wishes.length,
+        total: Math.max(state.loadProgress.total || 0, wishes.length),
+        percent: 98,
+      });
+      if (!posts.length) {
+        state.loadedFromApi = false;
+        return false;
+      }
 
       state.postMap.clear();
       posts.forEach((post) => state.postMap.set(post.id, post));
@@ -819,8 +895,10 @@
     if (!title || !text) return null;
 
     const dates = extractDates(text);
-    const fallbackDate = readPadletPublishedDate(attributes);
-    const primaryDate = fallbackDate || choosePrimaryDate(dates);
+    const publishedAt = readPadletPublishedDate(attributes);
+    const primaryDate = publishedAt
+      ? startOfDay(publishedAt)
+      : choosePrimaryDate(dates);
     const sectionId = String(attributes.wall_section_id || "");
     const apiId = String(
       attributes.hashid || wish.id || attributes.id || hash(text),
@@ -837,10 +915,10 @@
       commentUrl: normalizePadletCommentUrl(attributes.permalink || ""),
       commentPostId: Number(attributes.id || wish.id) || null,
       commentWishHashid: String(attributes.hashid || ""),
-      dates: dates.length ? dates : fallbackDate ? [fallbackDate] : [],
+      dates: dates.length ? dates : primaryDate ? [primaryDate] : [],
       date: primaryDate,
       dateKey: primaryDate ? formatDateKey(primaryDate) : "",
-      publishedAt: fallbackDate,
+      publishedAt,
       links,
       images,
     };
@@ -1014,6 +1092,7 @@
   }
 
   function updateLoadProgress(partial) {
+    const previousPercent = state.loadProgress.percent || 0;
     state.loadProgress = {
       ...state.loadProgress,
       ...partial,
@@ -1032,9 +1111,31 @@
     state.loadProgress.percent =
       typeof partial.percent === "number"
         ? partial.percent
-        : Math.max(scanPercent, totalPercent);
+        : Math.max(previousPercent, scanPercent, totalPercent);
 
     updateLoader();
+  }
+
+  async function withLoadProgressPulse(task, start, end) {
+    updateLoadProgress({
+      percent: Math.max(state.loadProgress.percent || 0, start),
+    });
+    const timer = window.setInterval(() => {
+      const current = state.loadProgress.percent || 0;
+      if (current >= end) return;
+      updateLoadProgress({
+        percent: Math.min(end, current + Math.max(0.8, (end - current) * 0.12)),
+      });
+    }, 120);
+
+    try {
+      return await task();
+    } finally {
+      window.clearInterval(timer);
+      updateLoadProgress({
+        percent: Math.max(state.loadProgress.percent || 0, end),
+      });
+    }
   }
 
   function updateLoader() {
@@ -1052,6 +1153,7 @@
       "--epr-loader-progress",
       `${Math.max(0, Math.min(100, progress.percent || 0)) * 3.6}deg`,
     );
+    animateRefreshProgress(progress.percent || 0);
     els.loaderPercent.textContent =
       progress.total || progress.percent >= 100
         ? `${Math.round(progress.percent || 0)}%`
@@ -1060,6 +1162,7 @@
     els.loaderDetail.textContent = progress.stableRounds
       ? `${detail} Stabilisation ${progress.stableRounds}/6.`
       : detail;
+    syncRefreshControl();
   }
 
   function detectExpectedPostCount() {
@@ -1121,8 +1224,9 @@
   }
 
   function isRecentEnough(post, cutoffDate) {
-    if (!post.date || !cutoffDate) return false;
-    return post.date >= startOfDay(cutoffDate);
+    const postDate = post.publishedAt || post.date;
+    if (!postDate || !cutoffDate) return false;
+    return startOfDay(postDate) >= startOfDay(cutoffDate);
   }
 
   function finalizePosts(posts) {
@@ -1147,6 +1251,8 @@
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return false;
       const cached = JSON.parse(raw);
+      const validSources = isTestPage ? ["api", "test"] : ["api"];
+      if (!validSources.includes(cached.source)) return false;
       if (!Array.isArray(cached.posts) || !cached.posts.length) return false;
 
       state.postMap.clear();
@@ -1160,6 +1266,7 @@
         comparePosts,
       );
       state.cacheLoaded = true;
+      state.loadedFromApi = cached.source === "api";
       state.cachedLatestDate = getLatestPostDate(state.posts);
       updateSections();
       render();
@@ -1170,9 +1277,10 @@
   }
 
   function saveCachedPosts() {
-    if (!CACHE_ENABLED) return;
+    if (!CACHE_ENABLED || (!state.loadedFromApi && !isTestPage)) return;
     try {
       const payload = {
+        source: state.loadedFromApi ? "api" : "test",
         savedAt: new Date().toISOString(),
         posts: state.posts.map(cachePost),
       };
@@ -1241,7 +1349,7 @@
 
   function getLatestPostDate(posts) {
     const dates = getCommunicationPosts(posts)
-      .map((post) => post.date)
+      .map((post) => post.publishedAt || post.date)
       .filter(Boolean);
     if (!dates.length) return null;
     return new Date(Math.max(...dates.map((date) => date.getTime())));
@@ -1279,6 +1387,7 @@
       Math.round(round * window.innerWidth * 0.75),
       Math.round((round % 7) * window.innerHeight * 0.7),
     );
+    document.dispatchEvent(new Event("scroll"));
     return moved;
   }
 
@@ -1601,7 +1710,7 @@
     ].filter(Boolean).length;
   }
 
-  function renderSummary(posts, total, source = "") {
+  function renderSummary(posts, total) {
     const count = posts.length;
     const label = hasActiveFilters()
       ? `${count}/${total} communications`
@@ -1610,7 +1719,7 @@
     const newSuffix = newCount
       ? ` dont ${newCount} nouvelle${newCount > 1 ? "s" : ""} depuis la derniere connexion le ${formatLastConnectionDate()}`
       : "";
-    return `${label}${newSuffix}.${source}`;
+    return `${label}${newSuffix}.`;
   }
 
   function formatLastConnectionDate() {
@@ -1647,13 +1756,92 @@
   }
 
   function toggleOriginal() {
+    if (!state.showOriginal) {
+      const toggleRect = els.toggle.getBoundingClientRect();
+      root.style.setProperty(
+        "--epr-original-toggle-top",
+        `${Math.round(toggleRect.top)}px`,
+      );
+      root.style.setProperty(
+        "--epr-original-toggle-right",
+        `${Math.round(window.innerWidth - toggleRect.right)}px`,
+      );
+    }
     state.showOriginal = !state.showOriginal;
     root.classList.toggle("epr-minimized", state.showOriginal);
     setReaderScrollLock(!state.showOriginal);
-    els.toggle.textContent = state.showOriginal
+    els.toggle.classList.toggle("epr-icon-action", !state.showOriginal);
+    els.toggle.classList.toggle("epr-padlet-action", !state.showOriginal);
+    els.toggle.classList.toggle("epr-reader-return-action", state.showOriginal);
+    els.toggle.innerHTML = state.showOriginal
+      ? `${renderIcon("arrow-left")}<span>Revenir au lecteur</span>`
+      : '<span class="epr-padlet-icon" aria-hidden="true"></span>';
+    const label = state.showOriginal
       ? "Revenir au lecteur"
-      : "Voir Padlet";
+      : "Voir le Padlet original";
+    els.toggle.setAttribute("aria-label", label);
+    els.toggle.setAttribute("title", label);
     els.toggle.setAttribute("aria-pressed", String(state.showOriginal));
+  }
+
+  function syncRefreshControl() {
+    const refreshing = state.isLoadingAll || state.isCheckingRecent;
+    els.rescan.classList.toggle("epr-refreshing", refreshing);
+    if (refreshing) {
+      window.clearTimeout(refreshCompletionTimer);
+      refreshCompletionTimer = 0;
+      els.rescan.classList.remove("epr-refresh-complete");
+    } else if (
+      state.loadProgress.percent >= 100 &&
+      !els.rescan.classList.contains("epr-refresh-complete")
+    ) {
+      els.rescan.classList.add("epr-refresh-complete");
+      refreshCompletionTimer = window.setTimeout(() => {
+        els.rescan.classList.remove("epr-refresh-complete");
+        animateRefreshProgress(0);
+        refreshCompletionTimer = 0;
+      }, 1200);
+    }
+    els.rescan.setAttribute("aria-busy", String(refreshing));
+    els.rescan.setAttribute(
+      "aria-label",
+      refreshing
+        ? "Actualisation des communications en cours"
+        : "Actualiser les communications",
+    );
+    els.rescan.title = refreshing
+      ? "Actualisation des communications en cours"
+      : "Actualiser les communications";
+  }
+
+  function animateRefreshProgress(value) {
+    const target = Math.max(0, Math.min(100, value));
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    window.cancelAnimationFrame(refreshProgressFrame);
+
+    if (target === 0 || reduceMotion) {
+      displayedRefreshProgress = target;
+      els.rescan.style.setProperty("--epr-refresh-progress", `${target}%`);
+      refreshProgressFrame = 0;
+      return;
+    }
+
+    const start = displayedRefreshProgress;
+    const startedAt = performance.now();
+    const duration = 600;
+    const update = (now) => {
+      const ratio = Math.min(1, (now - startedAt) / duration);
+      displayedRefreshProgress = start + (target - start) * ratio;
+      els.rescan.style.setProperty(
+        "--epr-refresh-progress",
+        `${displayedRefreshProgress}%`,
+      );
+      refreshProgressFrame =
+        ratio < 1 ? window.requestAnimationFrame(update) : 0;
+    };
+    refreshProgressFrame = window.requestAnimationFrame(update);
   }
 
   function setReaderScrollLock(locked) {
@@ -1688,6 +1876,29 @@
     } catch (error) {
       return fallback;
     }
+  }
+
+  function initializeUpdateIndicator() {
+    if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+
+    chrome.storage.local.get(UPDATE_STORAGE_KEY, (result) => {
+      setUpdateIndicator(result[UPDATE_STORAGE_KEY]);
+    });
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes[UPDATE_STORAGE_KEY]) return;
+      setUpdateIndicator(changes[UPDATE_STORAGE_KEY].newValue);
+    });
+  }
+
+  function setUpdateIndicator(update) {
+    const indicator = root.querySelector(".epr-update-available");
+    const version = cleanText(update?.version || "");
+    indicator.hidden = !version;
+    if (!version) return;
+
+    const message = `Une nouvelle version d'UglyPadlet (v${version}) est disponible. Le navigateur l'installera automatiquement des que possible.`;
+    indicator.setAttribute("aria-label", message);
+    indicator.title = message;
   }
 
   function isSupportedPadletPage() {
@@ -2057,7 +2268,7 @@
     if (!value) return null;
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
-    return startOfDay(date);
+    return date;
   }
 
   function normalizeYear(value, month) {
@@ -2099,9 +2310,11 @@
   }
 
   function comparePosts(a, b) {
-    if (a.date && b.date) return b.date - a.date;
-    if (a.date) return -1;
-    if (b.date) return 1;
+    const aDate = a.publishedAt || a.date;
+    const bDate = b.publishedAt || b.date;
+    if (aDate && bDate) return bDate - aDate;
+    if (aDate) return -1;
+    if (bDate) return 1;
     return a.index - b.index;
   }
 
@@ -2144,19 +2357,12 @@
         matchesFilters,
       );
       state.visiblePosts = filtered;
-      const source =
-        (state.isLoadingAll || state.isCheckingRecent) && state.loadMessage
-          ? ` ${state.loadMessage}.`
-          : state.cacheLoaded
-            ? " Depuis le cache."
-            : "";
       els.summary.textContent = renderSummary(
         filtered,
         getCommunicationPosts(state.posts).length,
-        source,
       );
 
-      if (state.isLoadingAll) {
+      if (state.isLoadingAll && !state.posts.length) {
         els.list.innerHTML = "";
         return;
       }
@@ -3050,6 +3256,18 @@
       "arrow-counterclockwise": [
         "M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2v1z",
         "M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z",
+      ],
+      "arrow-left": [
+        "M15 8a.5.5 0 0 1-.5.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 1 15 8z",
+      ],
+      "bell-plus": [
+        "M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2z",
+        "M8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.921L8 1.918zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 7.88 3 6a5 5 0 0 1 4-4.9V.5a1 1 0 0 1 2 0v.6A5 5 0 0 1 13 6c0 1.88.32 4.2 1.22 6z",
+        "M8.5 4.5a.5.5 0 0 0-1 0V6H6a.5.5 0 0 0 0 1h1.5v1.5a.5.5 0 0 0 1 0V7H10a.5.5 0 0 0 0-1H8.5V4.5z",
+      ],
+      "arrow-up-circle": [
+        "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1z",
+        "M8 4.5a.5.5 0 0 1 .354.146l3 3a.5.5 0 0 1-.708.708L8.5 6.207V11.5a.5.5 0 0 1-1 0V6.207L5.354 8.354a.5.5 0 1 1-.708-.708l3-3A.5.5 0 0 1 8 4.5z",
       ],
       "chevron-left": [
         "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z",
