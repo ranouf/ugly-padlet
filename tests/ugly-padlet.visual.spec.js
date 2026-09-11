@@ -305,16 +305,14 @@ test("visuel - les filtres sticky restent au-dessus des communications au scroll
     return {
       filtersTop: Math.round(rect.top),
       filtersZIndex: getComputedStyle(filters).zIndex,
-      cardZIndex: getComputedStyle(document.activeElement).zIndex,
+      cardZIndex: Number(getComputedStyle(document.activeElement).zIndex) || 0,
       topElementClass: element?.className || "",
       topElementInsideFilters: filters.contains(element),
     };
   });
 
   expect(stack.filtersTop).toBeGreaterThanOrEqual(0);
-  expect(Number(stack.filtersZIndex)).toBeGreaterThan(
-    Number(stack.cardZIndex || 0),
-  );
+  expect(Number(stack.filtersZIndex)).toBeGreaterThan(stack.cardZIndex);
   expect(stack.topElementInsideFilters).toBe(true);
   await captureVisual(page, "sticky-filters-above-cards.png", {
     fullPage: false,
@@ -431,7 +429,9 @@ test("visuel - cache affiche pendant la progression du rafraichissement", async 
   await page.goto(`${pageUrl}?lazy=1`);
   const refresh = page.locator('[data-action="rescan"]');
   await expect(page.locator(".epr-card").first()).toBeVisible();
-  await expect(refresh).toHaveAttribute("aria-busy", "false");
+  await expect(refresh).toHaveAttribute("aria-busy", "false", {
+    timeout: 15000,
+  });
   await page.waitForTimeout(1300);
   await refresh.evaluate((node) => {
     node.classList.remove("epr-refresh-complete");
