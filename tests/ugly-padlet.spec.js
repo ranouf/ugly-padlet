@@ -298,13 +298,60 @@ test("affiche les actions newsletter et actualisation dans l'entete", async ({
   await expect(padlet).toHaveText("");
 });
 
+test("indique lorsque l utilisateur suit deja le Padlet", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__uglyPadletStartingState = { wall: { is_commentable: true } };
+  });
+  const fixture = fs.readFileSync(
+    path.join(__dirname, "..", "ugly-padlet-test.html"),
+    "utf8",
+  );
+  await page.route("**/ugly-padlet-test.html?api-test=following", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: fixture.replace("<body>", '<body data-wall="board_Following123">'),
+    });
+  });
+  await page.route(
+    "https://padlet.com/api/1/walls/**/wall-follows",
+    (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/vnd.api+json; charset=utf-8",
+        headers: {
+          "access-control-allow-origin": "http://127.0.0.1:4173",
+          "access-control-allow-credentials": "true",
+        },
+        body: JSON.stringify({
+          data: {
+            attributes: { current_user_follows_wall: true },
+          },
+        }),
+      });
+    },
+  );
+  await openApp(page, `${pageUrl}?api-test=following`);
+
+  const newsletter = page.locator('[data-action="open-newsletter"]');
+  await expect(page.locator("#elan-padlet-reader")).toHaveAttribute(
+    "data-follows-wall",
+    "true",
+  );
+  await expect(newsletter.locator(".bi-bell-check")).toBeVisible();
+  await expect(newsletter).toHaveAttribute(
+    "aria-label",
+    "Déjà abonné à la newsletter du Padlet",
+  );
+});
+
 test("indique lorsqu une nouvelle version de l extension est disponible", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     window.chrome = {
       runtime: {
-        getManifest: () => ({ version: "2.0.29" }),
+        getManifest: () => ({ version: "2.0.30" }),
       },
       storage: {
         local: {
@@ -1169,7 +1216,7 @@ test("affiche liens, contact et conserve le fond original", async ({
   await expect(
     page.locator(".epr-credits a[href='mailto:uglypadlet@carnould.com']"),
   ).toHaveText("Suggestion ou bug : uglypadlet@carnould.com");
-  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.29");
+  await expect(page.locator(".epr-version")).toHaveText("UglyPadlet v2.0.30");
   await expect(page.locator(".epr-scrollbar")).toBeVisible();
 
   const background = await page
