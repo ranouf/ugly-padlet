@@ -2,7 +2,7 @@
   const APP_ID = "elan-padlet-reader";
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_ENABLED = true;
-  const APP_VERSION = getExtensionVersion("2.0.29");
+  const APP_VERSION = getExtensionVersion("2.0.30");
   const UPDATE_STORAGE_KEY = "uglyPadletUpdateAvailable";
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
@@ -142,6 +142,7 @@
     canModerateComments: Boolean(
       window.__uglyPadletStartingState?.canIModerate,
     ),
+    isFollowingWall: false,
     modalCommentsRefreshKey: "",
     commentsByPost: new Map(),
     commentsLoadingByPost: new Set(),
@@ -291,6 +292,7 @@
     filterCount: root.querySelector(".epr-filter-count"),
     filterFields: root.querySelector(".epr-filter-fields"),
     rescan: root.querySelector('[data-action="rescan"]'),
+    newsletter: root.querySelector('[data-action="open-newsletter"]'),
     toggle: root.querySelector('[data-action="toggle-original"]'),
     customScrollbar: root.querySelector("[data-custom-scrollbar]"),
     customScrollbarThumb: root.querySelector("[data-custom-scrollbar-thumb]"),
@@ -709,6 +711,7 @@
     }
 
     await withLoadProgressPulse(() => loadPadletStartingState(), 8, 18);
+    await loadPadletFollowState(wallHashid);
 
     try {
       const wishes = [];
@@ -804,6 +807,24 @@
     state.currentUserHashid = cleanText(startingState?.user?.hashid || "");
     state.canModerateComments = Boolean(startingState?.canIModerate);
     root.dataset.wallCommentable = String(state.isWallCommentable);
+  }
+
+  async function loadPadletFollowState(wallHashid) {
+    try {
+      const response = await fetch(
+        `https://padlet.com/api/1/walls/${encodeURIComponent(wallHashid)}/wall-follows`,
+        { credentials: "include" },
+      );
+      if (!response.ok) return;
+
+      const payload = await response.json();
+      state.isFollowingWall =
+        payload?.data?.attributes?.current_user_follows_wall === true;
+      root.dataset.followsWall = String(state.isFollowingWall);
+      syncNewsletterControl();
+    } catch {
+      // The signup action remains available if Padlet cannot report this state.
+    }
   }
 
   async function fetchPadletStartingState() {
@@ -1782,6 +1803,17 @@
     els.toggle.setAttribute("aria-label", label);
     els.toggle.setAttribute("title", label);
     els.toggle.setAttribute("aria-pressed", String(state.showOriginal));
+  }
+
+  function syncNewsletterControl() {
+    const label = state.isFollowingWall
+      ? "Déjà abonné à la newsletter du Padlet"
+      : "S'inscrire a la newsletter du Padlet";
+    els.newsletter.innerHTML = renderIcon(
+      state.isFollowingWall ? "bell-check" : "bell-plus",
+    );
+    els.newsletter.setAttribute("aria-label", label);
+    els.newsletter.title = label;
   }
 
   function syncRefreshControl() {
@@ -3264,6 +3296,11 @@
         "M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2z",
         "M8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.921L8 1.918zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 7.88 3 6a5 5 0 0 1 4-4.9V.5a1 1 0 0 1 2 0v.6A5 5 0 0 1 13 6c0 1.88.32 4.2 1.22 6z",
         "M8.5 4.5a.5.5 0 0 0-1 0V6H6a.5.5 0 0 0 0 1h1.5v1.5a.5.5 0 0 0 1 0V7H10a.5.5 0 0 0 0-1H8.5V4.5z",
+      ],
+      "bell-check": [
+        "M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2z",
+        "M8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.921L8 1.918zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 7.88 3 6a5 5 0 0 1 4-4.9V.5a1 1 0 0 1 2 0v.6A5 5 0 0 1 13 6c0 1.88.32 4.2 1.22 6z",
+        "M10.854 5.646a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 8.293l2.646-2.647a.5.5 0 0 1 .708 0z",
       ],
       "arrow-up-circle": [
         "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1z",
