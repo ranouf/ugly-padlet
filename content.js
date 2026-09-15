@@ -2,7 +2,7 @@
   const APP_ID = "elan-padlet-reader";
   const TEST_PAGE = "ugly-padlet-test.html";
   const CACHE_ENABLED = true;
-  const APP_VERSION = getExtensionVersion("2.0.30");
+  const APP_VERSION = getExtensionVersion("2.0.31");
   const UPDATE_STORAGE_KEY = "uglyPadletUpdateAvailable";
   const STATUS_OPTIONS = [
     ["all", "Toutes"],
@@ -2671,8 +2671,12 @@
       request.type === "slug" ? normalizeWishSlug(request.value) : "";
 
     const index = state.visiblePosts.findIndex((post) => {
-      if (request.type === "slug")
-        return normalizeWishSlug(post.urlSlug) === requestedSlug;
+      if (request.type === "slug") {
+        return (
+          normalizeWishSlug(post.urlSlug) === requestedSlug ||
+          String(post.commentPostId || "") === requestedSlug
+        );
+      }
       return post.id === request.value;
     });
     if (index < 0) return false;
