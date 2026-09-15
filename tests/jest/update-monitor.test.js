@@ -28,11 +28,11 @@ describe("extension update monitor", () => {
     };
 
     require("../../update-monitor.js");
-    updateListener({ version: "2.0.30" });
+    updateListener({ version: "2.0.31" });
     installedListener();
 
     expect(set).toHaveBeenCalledWith({
-      uglyPadletUpdateAvailable: { version: "2.0.30" },
+      uglyPadletUpdateAvailable: { version: "2.0.31" },
     });
     expect(remove).toHaveBeenCalledWith("uglyPadletUpdateAvailable");
   });
