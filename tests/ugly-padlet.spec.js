@@ -1774,6 +1774,105 @@ test("rouvre le modal correspondant apres rafraichissement de l'URL profonde", a
   await expect(page).not.toHaveURL(/uglyPost=/);
 });
 
+test("ouvre une publication de notification absente du cache apres la synchronisation API", async ({
+  page,
+}) => {
+  const fixture = fs.readFileSync(
+    path.join(__dirname, "..", "ugly-padlet-test.html"),
+    "utf8",
+  );
+  let releaseWishes;
+  const wishesGate = new Promise((resolve) => {
+    releaseWishes = resolve;
+  });
+
+  await page.addInitScript(() => {
+    window.__uglyPadletStartingState = {
+      wall: { is_commentable: false },
+    };
+    localStorage.setItem(
+      "uglyPadlet:ecoleElan:posts:v5",
+      JSON.stringify({
+        source: "api",
+        savedAt: new Date().toISOString(),
+        posts: [
+          {
+            id: "padlet-cached_post",
+            index: 0,
+            title: "Communication en cache",
+            text: "Communication en cache",
+            isSeparator: false,
+            section: "École",
+            urlSlug: "cached_post",
+            commentPostId: 1,
+            date: "2026-09-14T04:00:00.000Z",
+            dates: ["2026-09-14T04:00:00.000Z"],
+            dateKey: "2026-9-14",
+            publishedAt: "2026-09-14T12:00:00.000Z",
+            links: [],
+            images: [],
+          },
+        ],
+      }),
+    );
+  });
+  await page.route("**/wish/4050358276?*", (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: fixture
+        .replace("<head>", '<head><base href="/">')
+        .replace("<body>", '<body data-wall="board_DeepLink123">'),
+    });
+  });
+  await page.route("https://padlet.com/api/1/walls/**/wall-follows", (route) =>
+    route.fulfill({ status: 200, body: "{}" }),
+  );
+  await page.route("https://padlet.com/api/10/wishes**", async (route) => {
+    await wishesGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/vnd.api+json; charset=utf-8",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:4173",
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        data: [
+          {
+            id: "4050358276",
+            attributes: {
+              id: 4050358276,
+              hashid: "post_new_email_notification",
+              subject: "Nouvelle communication de l'email",
+              body: "Cette publication n'etait pas encore dans le cache.",
+              published_at: "2026-09-15T12:00:00.000Z",
+            },
+          },
+        ],
+        meta: { next: null },
+      }),
+    });
+  });
+
+  const boardPath = "/elanquoideneuf/ecole-elan-2026-2027-gsult4hljk84tu3a";
+  await page.goto(
+    `${boardPath}/wish/4050358276?fixture=ugly-padlet-test.html&api-test=deep-link&boardPath=${encodeURIComponent(boardPath)}`,
+  );
+
+  await expect(
+    page.locator(".epr-card", { hasText: "Communication en cache" }),
+  ).toBeVisible();
+  await expect(page.locator(".epr-modal")).toHaveCount(0);
+
+  releaseWishes();
+
+  await expect(page.locator(".epr-modal")).toBeVisible();
+  await expect(page.locator(".epr-modal h2")).toHaveText(
+    "Nouvelle communication de l'email",
+  );
+});
+
 test("utilise le chemin du Padlet courant pour les liens profonds", async ({
   page,
 }) => {

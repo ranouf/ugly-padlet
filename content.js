@@ -2671,8 +2671,12 @@
       request.type === "slug" ? normalizeWishSlug(request.value) : "";
 
     const index = state.visiblePosts.findIndex((post) => {
-      if (request.type === "slug")
-        return normalizeWishSlug(post.urlSlug) === requestedSlug;
+      if (request.type === "slug") {
+        return (
+          normalizeWishSlug(post.urlSlug) === requestedSlug ||
+          String(post.commentPostId || "") === requestedSlug
+        );
+      }
       return post.id === request.value;
     });
     if (index < 0) return false;
